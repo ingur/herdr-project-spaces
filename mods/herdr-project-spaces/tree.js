@@ -144,7 +144,7 @@ export default class ProjectTree extends StockSpaces {
     cx.notify();
   }
 
-  // `pending` (the fields this action changes) shows on the row at once; see shown().
+  // `pending` (the fields this action changes) shows on the row at once; see withPending().
   action(action, row, cx, extra = {}, pending) {
     if (this.actions.has(row.key) || this.closed) return;
     this.actions.add(row.key);
@@ -190,7 +190,7 @@ export default class ProjectTree extends StockSpaces {
 
   // What someone just changed (name, resolved, place in the list) shows at once: `pending` holds a
   // session's changed fields until the registry says the same, or saving failed.
-  shown(session) {
+  withPending(session) {
     const key = sessionKey(session), pending = this.pending.get(key);
     if (!pending) return session;
     if (Object.keys(pending).every(field => session[field] === pending[field])) { this.pending.delete(key); return session; }
@@ -392,7 +392,7 @@ export default class ProjectTree extends StockSpaces {
     }
     // This computer's spaces are all read: until then every one of them looks gone.
     const local = machines().find(machine => machine.name === null)?.layout;
-    const rows = projectSpaces({ spaces: spaces(), panes: panes(), agents: agents(), sessions: this.backends.sessions().map(session => this.shown(session)),
+    const rows = projectSpaces({ spaces: spaces(), panes: panes(), agents: agents(), sessions: this.backends.sessions().map(session => this.withPending(session)),
       terminals: this.ranked(all, t => t.address, t => Number(t.labels?.["projects.rank"]), (t, rank) => ({ ...t, labels: { ...t.labels, "projects.rank": String(rank) } })),
       showResolved: this.showResolved, ready: !local || local === "ready" });
     this.projection = new Map(rows.map(row => [row.key, row]));
