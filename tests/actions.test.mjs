@@ -52,12 +52,24 @@ test("resolve and close do not focus, reopen or kill unrelated native panes", as
 
 test("rename updates only a verified current terminal's tab", async () => {
   const { io, calls, commands } = harness(() => ({ ...child, title: "New name" }));
+  const titles = [];
+  io.tabRenamed = (...args) => titles.push(args);
   await performSessionAction(endpoint, "rename", child, { title: "New name" }, io);
   assert.equal(calls[0].input.title, "New name");
   assert.deepEqual(commands, [["tab.rename", { id: "buildbox/tab2", name: "New name" }]]);
+  assert.deepEqual(titles, [[endpoint, { ...child, title: "New name" }, pane.tab]]);
   const stopped = harness(() => ({ ...child, title: "Saved", terminalOwned: false }));
   await performSessionAction(endpoint, "rename", child, { title: "Saved" }, stopped.io);
   assert.deepEqual(stopped.commands, []);
+});
+
+test("a tab's human rename goes through control; failure leaves the user's tab untouched", async () => {
+  const saved = harness(() => ({ ...child, title: "Human name" }));
+  await performSessionAction(endpoint, "rename", child, { title: "Human name", by: "human" }, saved.io);
+  assert.deepEqual(saved.calls[0].input, { title: "Human name", by: "human", projectRoot: "/project", id: "thread", stateDir: "/state" });
+  const failed = harness(() => { throw new Error("Rename refused"); });
+  await assert.rejects(performSessionAction(endpoint, "rename", child, { title: "Human name", by: "human" }, failed.io), /Rename refused/);
+  assert.deepEqual(failed.commands, []);
 });
 
 test("uncertain or mismatched identity never drives native focus", async () => {
@@ -116,7 +128,7 @@ test("the menu closes only a running terminal of the session's own and resolves 
   assert.match(deletion(record, [record, child, { ...child, id: "other" }, { ...child, coordinator: "elsewhere" }]).detail, /\b2\b/);
 });
 
-test("show and place hand their space to control, which alone places; a show with nowhere to open asks nothing of it", async () => {
+test("show and place hand their space to control, which alone places", async () => {
   const shown = harness(() => child);
   await performSessionAction(endpoint, "show", child, { space: "s2" }, shown.io);
   assert.deepEqual(shown.calls.map(call => [call.action, call.input]), [["show", { space: "s2", projectRoot: "/project", id: "thread", stateDir: "/state" }]]);
@@ -125,7 +137,4 @@ test("show and place hand their space to control, which alone places; a show wit
   await performSessionAction(endpoint, "place", record, { space: "s2" }, placed.io);
   assert.deepEqual(placed.calls.map(call => [call.action, call.input]), [["place", { space: "s2", projectRoot: "/project", id: "project", stateDir: "/state" }]]);
   assert.deepEqual(placed.commands, []);
-  const nowhere = harness(() => child);
-  await assert.rejects(performSessionAction(endpoint, "show", child, { space: null }, nowhere.io), /Select a space/);
-  assert.deepEqual([nowhere.calls, nowhere.commands], [[], []]);
 });

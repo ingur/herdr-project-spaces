@@ -3,7 +3,7 @@ import { Button, h_flex, v_flex } from "gpui-base";
 import { agents, exec, hc, machines, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, theme, updates } from "herdr";
 import StockSpaces, { STOCK_VERSION } from "./stock-spaces.js";
 import { SessionBackends, authorizeEndpoint, errorText, unqualify } from "./backends.js";
-import { UNPLACED, displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceKey, spaceRows, stepRow, tabRenames, urgentStatus } from "./projection.js";
+import { displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceKey, spaceRows, stepRow, tabRenames, urgentStatus } from "./projection.js";
 import { performSessionAction } from "./actions.js";
 
 export const MOD = "herdr-project-spaces";
@@ -19,10 +19,19 @@ export const CHANGED = `${MOD}.changed`;
 export const icon = (name, size = 13) => svg(name === "trash" ? `mods/${MOD}/trash.svg` : `mods/workspace-chrome/${name}.svg`).size(size).flex_none();
 // Herdr's own program icon, drawn as the Agents mod draws it; a terminal where the row has none.
 const programIcon = program => program?.icon ? (program.tint ? svg(program.icon) : image(program.icon)).size(13).flex_none() : icon("terminal");
+const rememberTabTitle = (applied, title) => {
+  applied.set(title.key, title);
+  applied.set(`tab:${title.tab}`, title.name);
+};
 export const actionIO = (cx, owner) => ({
   exec, panes, run, tabs: () => spaces().flatMap(space => space.tabs ?? []),
   authorize: endpoint => authorizeEndpoint(endpoint, backendStorage, terminals()),
   closed: () => owner.closed, pause: ms => new Promise(resolve => cx.timer.after(ms, resolve)),
+  tabRenamed: (endpoint, session, tab) => {
+    const title = { key: sessionKey({ ...session, endpoint }), tab, title: session.title, name: session.title, confirmed: false };
+    if (owner.tabTitles) rememberTabTitle(owner.tabTitles, title);
+    else owner.tabTitle = title;
+  },
 });
 export const reportError = error => notify({ title: "Project sessions", body: errorText(error), level: "error" });
 
@@ -115,7 +124,10 @@ export default class ProjectTree extends StockSpaces {
       finally {
         this.refreshingSessions = false;
         if (!this.closed) {
-          for (const rename of tabRenames(this.backends.sessions(), panes(), spaces().flatMap(space => space.tabs ?? []), this.tabTitles)) run("tab.rename", rename);
+          if (!this.actions.size) for (const rename of tabRenames(this.backends.sessions(), panes(), spaces().flatMap(space => space.tabs ?? []), this.tabTitles)) {
+            if (rename.session) this.action("rename", { key: sessionKey(rename.session), session: rename.session }, cx, { title: rename.title, by: "human" });
+            else run("tab.rename", rename);
+          }
           if (previous !== JSON.stringify([this.backends.sessions(), this.backends.errors])) cx.notify();
           if (this.refreshAgain) { this.refreshAgain = false; this.refreshSessions(cx); }
         }
@@ -263,7 +275,7 @@ export default class ProjectTree extends StockSpaces {
     return [on || hovered ? smallButton(`archives-${key}`, "archive", `${on ? "Hide" : "Show"} resolved ${what} (${count})`, cx => this.toggle(this.showResolved, key, "projects.resolved", cx), on) : slot()];
   }
 
-  // `missing`: the row of a space that is gone or out of reach, where no terminal can start.
+  // `missing`: the row of a space out of reach, where no terminal can start.
   rowTrailing(space, t, missing) {
     const key = spaceKey(space.id), row = this.projection.get(space.id), hovered = this.hoveredRow === key;
     const hidden = row && this.projectFolds.has(key) ? spaceRows(row) : [];
@@ -291,8 +303,7 @@ export default class ProjectTree extends StockSpaces {
     const head = missing ? h_flex().id(`space-${native.w.id}`).h(30).px(8).gap(9).items_center().rounded(8).text_color(t.dim)
       .when(selected, el => el.bg(t.selected)).on_hover((on, cx) => this.hoverRow(key, on, cx))
       .children(this.rowLeading(native.w)).child(icon("folder"))
-      .child(div().flex_1().truncate().tooltip(native.w.id === UNPLACED ? "Projects whose space is gone; one opens in the space you are in."
-        : "Out of reach; its projects open again once its machine reconnects.").child(native.w.name))
+      .child(div().flex_1().truncate().tooltip("Out of reach; its projects open again once its machine reconnects.").child(native.w.name))
       .children(this.rowTrailing(native.w, t, true))
       // Stock fills the row of the `active` space; here the selected row has the fill, which a session's may be.
       : super.row({ ...native, w: { ...native.w, active: selected } }, t).on_hover((on, cx) => this.hoverRow(key, on, cx));
@@ -303,7 +314,7 @@ export default class ProjectTree extends StockSpaces {
   compact(native, t) {
     if (!this.projection.get(native.w.id)?.missing) return super.compact(native, t);
     return h_flex().h(26).justify_center().items_center().text_color(t.dim)
-      .tooltip(native.w.id === UNPLACED ? "Unplaced: projects whose space is gone" : `${native.w.name}: last session snapshot; space unavailable`).child(icon("folder"));
+      .tooltip(`${native.w.name}: last session snapshot; space unavailable`).child(icon("folder"));
   }
 
   sessionRow(row, group, anchor) {
@@ -349,7 +360,12 @@ export default class ProjectTree extends StockSpaces {
   render(cx) {
     const all = terminals();
     // Refresh when a control advertisement changes, and when an overlay says it changed a session.
-    const signature = JSON.stringify([shared(CHANGED), all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"]])]);
+    const changed = shared(CHANGED), change = JSON.stringify(changed);
+    if (change !== this.sessionChange) {
+      this.sessionChange = change;
+      if (changed?.tabTitle) rememberTabTitle(this.tabTitles, changed.tabTitle);
+    }
+    const signature = JSON.stringify([change, all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"]])]);
     if (signature !== this.terminalSignature) {
       this.terminalSignature = signature;
       this.refreshSessions(cx);

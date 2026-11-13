@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { UNPLACED, tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceRows, stepRow } from "../mods/herdr-project-spaces/projection.js";
+import { tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceRows, stepRow } from "../mods/herdr-project-spaces/projection.js";
 import { qualify } from "../mods/herdr-project-spaces/backends.js";
 
 const endpoint = (machine = null, stateDir = "/state") => ({ version: 1, command: ["/bin/node", "/control.mjs"], stateDir, machine });
@@ -123,12 +123,12 @@ function ranked() {
 
 test("rows show highest rank first: open threads above resolved ones, projects and independent rows mixed", () => {
   const [one, two] = ranked(), name = row => row && (row.session?.id ?? row.key);
-  assert.deepEqual(spaceItems(one).map(item => item.key), ["t8", key("p2"), "t7", key("p1"), key("gone"), "t9", "pane:p3"]);
+  assert.deepEqual(spaceItems(one).map(item => item.key), ["t8", key("p2"), "t7", key("p1"), "t9", "pane:p3"]);
   assert.deepEqual(one.groups[0].children.map(name), ["new", "old", "done", "older"]);
   assert.equal(two.entries[0].rank, 50, "a label that is no number leaves the terminal's creation time");
-  assert.deepEqual(spaceRows(one).map(name), ["t8", "p2", "other", "t7", "p1", "new", "old", "done", "older", null, "orphan", "t9", "pane:p3"]);
+  assert.deepEqual(spaceRows(one).map(name), ["t8", "p2", "other", "t7", "p1", "new", "old", "done", "older", "t9", "pane:p3"]);
   assert.deepEqual(displayRows([one, two], new Set()).map(item => name(item.row)),
-    ["t8", "p2", "other", "t7", "p1", "new", "old", "done", "older", "orphan", "t9", "pane:p3", "t6"]);
+    ["t8", "p2", "other", "t7", "p1", "new", "old", "done", "older", "t9", "pane:p3", "t6"]);
 });
 
 test("a drop takes a rank between its new neighbours, only among the rows it may trade places with", () => {
@@ -169,11 +169,10 @@ test("the move keys trade places with the neighbour a drag could reach; nothing 
 });
 
 test("a resolved project hides with all its threads until its space shows them, and still owns its terminal", () => {
-  const sessions = [session("open"), session("done", "done", { resolved: true, terminal: "t1", ...live }), session("child", "done"), session("lost", "lost", { resolved: true, space: "gone" })];
+  const sessions = [session("open"), session("done", "done", { resolved: true, terminal: "t1", ...live }), session("child", "done")];
   const panes = [{ pane: "p1", tab: "tab-one", terminal: "t1" }];
-  const [one, , unplaced] = projectSpaces({ ...world, sessions, panes });
+  const [one] = projectSpaces({ ...world, sessions, panes });
   assert.deepEqual([one.groups.map(group => group.key), one.resolvedCount, one.entries], [[key("open")], 1, []]);
-  assert.deepEqual([unplaced.key, unplaced.groups, unplaced.resolvedCount], [UNPLACED, [], 1], "a row of only resolved projects stays, for its archive button");
   const [shown] = projectSpaces({ ...world, sessions, panes, showResolved: new Set(["space:one"]) });
   assert.deepEqual(shown.groups.map(group => [group.key, group.children.length]), [[key("open"), 0], [key("done"), 1]]);
 });
@@ -193,31 +192,38 @@ test("the resolved key toggles the level the selection is on, or the view that h
   assert.equal(resolvedToggle(rows("t2"), "space:two"), "space:one", "a thread of a resolved project by its space's view");
 });
 
-test("a space that is gone leaves this computer's projects in one Unplaced row; another machine's, or any while spaces load, is only unavailable", () => {
-  const sessions = [session("home"), session("stray", "home", { space: "gone" }), session("lost", "lost", { space: "gone" }), session("other", "other", { space: "gone-too" }),
-    session("far", "far", { space: "gone", endpoint: endpoint("remote") })];
-  const rows = options => projectSpaces({ ...world, sessions, ...options }).map(row => [row.key, row.missing, row.groups.length]);
-  assert.deepEqual(rows({}), [["one", false, 1], ["two", false, 0], [UNPLACED, true, 2], ["remote/gone", true, 1]]);
-  assert.deepEqual(rows({ ready: false }), [["one", false, 1], ["two", false, 0], ["gone", true, 1], ["gone-too", true, 1], ["remote/gone", true, 1]]);
-  assert.deepEqual(rows({ sessions: sessions.slice(0, 2) }), [["one", false, 1], ["two", false, 0]], "a thread is under its project: its own lost space gets no row");
+test("gone local projects disappear; unreachable and loading spaces keep their existing rows", () => {
+  const sessions = [session("home"), session("stray", "home", { space: "gone" }), session("lost", "lost", { space: "gone", tab: "tab-one" }),
+    session("child", "lost"), session("other", "other", { space: "gone-too", resolved: true }), session("orphan", "absent"),
+    session("far", "far", { space: "gone", endpoint: endpoint("remote"), available: false })];
+  const project = options => projectSpaces({ ...world, sessions, ...options });
+  const rows = options => project(options).map(row => [row.key, row.missing, row.groups.length, row.resolvedCount]);
+  assert.deepEqual(rows({}), [["one", false, 1, 0], ["two", false, 0, 0], ["remote/gone", true, 1, 0]]);
+  assert.deepEqual(rows({ ready: false }), [["one", false, 1, 0], ["two", false, 0, 0], ["gone", true, 1, 0], ["gone-too", true, 0, 1], ["remote/gone", true, 1, 0]]);
+  assert.equal(project({})[2].space.name, "Unavailable space");
+  assert.equal(project({ ready: false })[2].space.name, "Unavailable space");
+  assert.deepEqual(displayRows(project({}), new Set()).map(item => item.row.session.id), ["home", "stray", "far"]);
+  assert.equal(resolvedToggle(project({}), key("lost")), null);
+  assert.equal(selectedKey(project({}), new Set()), null);
+  assert.equal(stepRow(displayRows(project({}), new Set()), null, 1), null);
 });
 
-test("a stopped session opens in its project's space, an unplaced project where the person is; a running or unavailable one is left to control", () => {
+test("stopped threads follow their project's current space, never their stale space or tab", () => {
   const spaces = [space("one", ["tab-one"]), space("two", ["tab-two"], { active: true }), space("remote/one", ["remote/tab"], { machine: "remote" })];
   const remote = { endpoint: endpoint("remote") };
-  const sessions = [session("home"), session("strayed", "home", { space: "gone" }), session("running", "home", { terminal: "t1", ...live }),
-    session("moved", "moved", { terminal: "t2", ...live }), session("follows", "moved"), session("lost", "lost", { space: "gone" }), session("child", "lost"),
+  const sessions = [session("home", "home", { space: "two", tab: "tab-one" }), session("strayed", "home", { space: "gone", tab: "tab-one" }),
+    session("running", "home", { terminal: "t1", ...live }), session("moved", "moved", { terminal: "t2", ...live }), session("follows", "moved"),
     session("far", "far", remote), session("near", "far", { ...remote, space: "gone" }), session("away", "away", { ...remote, space: "gone" })];
   const panes = [{ pane: "p1", tab: "tab-one", terminal: "t1" }, { pane: "p2", tab: "tab-two", terminal: "t2" }];
-  const opens = (id, extra, options) => openSpace(projectSpaces({ spaces, panes, agents: [], sessions, ...options }), sessionKey(session(id, id, extra)));
-  for (const id of ["home", "strayed"]) assert.deepEqual(opens(id), { space: "one" }, id);
-  assert.deepEqual(opens("follows"), { space: "two" }, "a thread goes where its project's terminal is now");
-  for (const id of ["lost", "child"]) assert.deepEqual(opens(id), { space: "two" }, `${id}: the active space`);
+  const rows = projectSpaces({ spaces, panes, agents: [], sessions });
+  const opens = (id, extra) => openSpace(rows, sessionKey(session(id, id, extra)));
+  const home = rows[1].groups[0];
+  assert.equal(home.children[0].placement.id, "two");
+  assert.equal(home.children[1].placement.id, "one", "a running thread keeps its terminal's placement under its project");
+  for (const id of ["home", "strayed", "follows"]) assert.deepEqual(opens(id), { space: "two" }, id);
   for (const id of ["far", "near"]) assert.deepEqual(opens(id, remote), { space: "one" }, `${id}: an id as its own machine knows it`);
   for (const id of ["running", "moved", "nowhere"]) assert.deepEqual(opens(id), {}, id);
   assert.deepEqual(opens("away", remote), {}, "another machine's space may only be out of reach");
-  assert.deepEqual(opens("lost", {}, { ready: false }), {}, "and so may this computer's while its spaces load");
-  assert.deepEqual(opens("lost", {}, { spaces: [spaces[0], spaces[2]] }), { space: null }, "the person is in no space of this computer");
 });
 
 test("only a project is dropped on a space: by its head, on another space of its own machine", () => {
@@ -226,13 +232,13 @@ test("only a project is dropped on a space: by its head, on another space of its
     session("far", "far", { space: "gone", endpoint: endpoint("remote") })];
   const rows = projectSpaces({ spaces, panes: [{ pane: "p1", tab: "tab-one", terminal: "t1" }, { pane: "p2", tab: "tab-one", terminal: "t2" }], agents: [], sessions });
   const far = sessionKey(sessions[4]);
-  for (const [from, to] of [[key("home"), "two"], [key("lost"), "one"], [far, "remote/one"]]) assert.equal(spaceDrop(rows, from, to)?.key, from, `${from} on ${to}`);
+  for (const [from, to] of [[key("home"), "two"], [far, "remote/one"]]) assert.equal(spaceDrop(rows, from, to)?.key, from, `${from} on ${to}`);
   assert.equal(spaceDrop(rows, key("running"), "two").live, true, "one that runs is the caller's to refuse");
   const refused = [
     [key("home"), "one"], // where it is
     [key("thread"), "two"], ["t2", "two"], // a thread goes with its project, a terminal is where it is
     [key("home"), "remote/one"], [far, "one"], // another machine
-    [key("home"), UNPLACED], [key("home"), "nowhere"], [null, "two"],
+    [key("lost"), "one"], [key("home"), "remote/gone"], [key("home"), "nowhere"], [null, "two"],
   ];
   for (const [from, to] of refused) assert.equal(spaceDrop(rows, from, to), null, `${from} on ${to}`);
 });
@@ -245,16 +251,60 @@ test("a session's hover line is its folder, then only what its row does not show
   assert.match(line({}, true, "two")[1], /two$/, "a terminal running in another space names it");
 });
 
-test("tab names follow session titles but never replace a name someone gave the tab", () => {
-  const live = (id, title, terminal) => ({ id, title, projectRoot: "/p", endpoint: { machine: null, stateDir: "/s" }, available: true, terminalOwned: true, terminalState: "live", native: { terminal } });
-  const panes = [{ terminal: "t1", tab: "a" }, { terminal: "t2", tab: "b" }, { terminal: "t3", tab: "c" }];
-  const applied = new Map();
-  const tabs = [{ id: "a", named: false, name: "1", panes: 1 }, { id: "b", named: true, name: "Mine", panes: 1 }, { id: "c", named: false, name: "3", panes: 2 }];
-  assert.deepEqual(tabRenames([live("x", "One", "t1"), live("y", "Two", "t2"), live("z", "Three", "t3")], panes, tabs, applied), [{ id: "a", name: "One" }]);
-  tabs[0] = { id: "a", named: true, name: "One", panes: 1 };
-  assert.deepEqual(tabRenames([live("x", "One", "t1")], panes, tabs, applied), []);
-  assert.deepEqual(tabRenames([live("x", "Renamed", "t1")], panes, tabs, applied), [{ id: "a", name: "Renamed" }]);
-  assert.deepEqual(tabRenames([{ ...live("x", "Stopped", "t1"), terminalState: "finished" }], panes, tabs, applied), []);
+test("a synced tab rename requests one human session rename, even while control is pending or failed", () => {
+  for (const id of ["project", "thread"]) {
+    const record = session(id, "project", { title: "Before", terminal: "t1", ...live });
+    const panes = [{ terminal: "t1", tab: "a" }], applied = new Map();
+    const tab = { id: "a", name: "1", named: false, panes: 1 };
+    const sync = (current = record) => tabRenames([current], panes, [tab], applied);
+    assert.deepEqual(sync(), [{ id: "a", name: "Before" }]);
+    Object.assign(tab, { name: "Changed before sync was seen", named: true });
+    assert.deepEqual(sync(), [], "requesting a tab title alone is not evidence that the tab showed it");
+    Object.assign(tab, { name: "Before", named: true });
+    assert.deepEqual(sync(), []);
+    tab.name = "Human name";
+    assert.deepEqual(sync(), [{ session: record, title: "Human name" }]);
+    assert.deepEqual(sync(), [], "a stale session snapshot neither repeats the request nor restores the old tab name");
+    assert.deepEqual(sync({ ...record, title: "Human name" }), [], "control's acknowledgement does not bounce back");
+  }
+});
+
+test("a session renamed elsewhere renames its synced tab", () => {
+  const record = session("x", "x", { title: "Before", terminal: "t1", ...live });
+  const panes = [{ terminal: "t1", tab: "a" }], applied = new Map();
+  const tab = { id: "a", name: "1", named: false, panes: 1 };
+  tabRenames([record], panes, [tab], applied);
+  Object.assign(tab, { name: "Before", named: true });
+  tabRenames([record], panes, [tab], applied);
+  assert.deepEqual(tabRenames([{ ...record, title: "Elsewhere" }], panes, [tab], applied), [{ id: "a", name: "Elsewhere" }]);
+});
+
+test("an unsynced named tab stays untouched, including a session moved to another named tab", () => {
+  const record = session("x", "x", { title: "Session", terminal: "t1", ...live });
+  const applied = new Map(), panes = [{ terminal: "t1", tab: "a" }];
+  const tab = { id: "a", name: "Mine", named: true, panes: 1 };
+  assert.deepEqual(tabRenames([record], panes, [tab], applied), []);
+  tab.name = "Still mine";
+  assert.deepEqual(tabRenames([record], panes, [tab], applied), []);
+  tab.name = record.title;
+  assert.deepEqual(tabRenames([record], panes, [tab], applied), []);
+  tabRenames([record], [{ terminal: "t1", tab: "b" }], [{ id: "b", name: "1", named: false, panes: 1 }], applied);
+  assert.deepEqual(tabRenames([record], panes, [tab], applied), []);
+});
+
+test("multi-pane tabs and terminals the session does not own never rename sessions", () => {
+  const record = session("x", "x", { title: "Session", terminal: "t1", ...live });
+  const applied = new Map(), panes = [{ terminal: "t1", tab: "a" }];
+  const tab = { id: "a", name: "1", named: false, panes: 1 };
+  tabRenames([record], panes, [tab], applied);
+  Object.assign(tab, { name: "Session", named: true });
+  tabRenames([record], panes, [tab], applied);
+  Object.assign(tab, { name: "Split name", panes: 2 });
+  assert.deepEqual(tabRenames([record], [...panes, { terminal: "t2", tab: "a" }], [tab], applied), []);
+  tab.panes = 1;
+  for (const extra of [{ available: false }, { terminalOwned: false }, { terminalState: "finished" }]) {
+    assert.deepEqual(tabRenames([{ ...record, ...extra }], panes, [tab], applied), []);
+  }
 });
 
 test("a tab's name names its only pane; a split beside it is named by what runs there", () => {
@@ -275,4 +325,12 @@ test("a tab gets its number back when its session leaves and a split stays behin
   const left = [{ id: "a", named: true, name: "Thread", panes: 1 }];
   assert.deepEqual(tabRenames([], [{ terminal: "t2", tab: "a" }], left, applied), [{ id: "a", name: "" }]);
   assert.deepEqual(tabRenames([], [{ terminal: "t2", tab: "a" }], left, applied), [], "only once, and never a name someone gave");
+});
+
+test("a tab already showing the title after a reload is synced, so renaming it renames the session", () => {
+  const live = { id: "x", title: "Docs", projectRoot: "/p", endpoint: { machine: null, stateDir: "/s" }, available: true, terminalOwned: true, terminalState: "live", native: { terminal: "t1" } };
+  const panes = [{ terminal: "t1", tab: "a" }], applied = new Map();
+  assert.deepEqual(tabRenames([live], panes, [{ id: "a", named: true, name: "Docs", panes: 1 }], applied), []);
+  const renames = tabRenames([live], panes, [{ id: "a", named: true, name: "API docs", panes: 1 }], applied);
+  assert.deepEqual(renames.map(rename => [rename.session?.id, rename.title]), [["x", "API docs"]]);
 });

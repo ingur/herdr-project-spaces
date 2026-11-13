@@ -30,11 +30,9 @@ function checkedResult(result, previous, allowNew = false) {
   return result;
 }
 
-// `extra` goes to control as given. A show whose `space` is null has nowhere to open (projection's
-// `openSpace`): control is not asked, and no space is ever made for a session.
+// `extra` goes to control as given; control alone places sessions.
 export async function performSessionAction(endpoint, action, record, extra, io) {
   if (!["show", "create-thread", "rename", "order", "place", "close", "resolve", "delete"].includes(action)) throw new Error("Unknown session action.");
-  if (action === "show" && extra.space === null) throw new Error("Its space is gone, so it opens in the space you are in. Select a space on this computer first.");
   const execute = (...args) => {
     io.authorize(endpoint);
     return io.exec(...args);
@@ -51,7 +49,10 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
     if (result.terminalOwned && result.terminalState === "live") {
       const terminal = qualify(endpoint.machine, result.terminal);
       const pane = io.panes().find(pane => pane.terminal === terminal);
-      if (pane) io.run("tab.rename", { id: pane.tab, name: result.title });
+      if (pane) {
+        io.run("tab.rename", { id: pane.tab, name: result.title });
+        io.tabRenamed?.(endpoint, result, pane.tab);
+      }
     }
     return result;
   }
@@ -66,7 +67,10 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
       if (io.closed?.()) throw new Error("Session opened, but this view closed before it could focus.");
       const pane = io.panes().find(pane => pane.terminal === terminal);
       if (pane) {
-        if (created || io.tabs().some(tab => tab.id === pane.tab && !tab.named)) io.run("tab.rename", { id: pane.tab, name: result.title });
+        if (created || io.tabs().some(tab => tab.id === pane.tab && !tab.named)) {
+          io.run("tab.rename", { id: pane.tab, name: result.title });
+          io.tabRenamed?.(endpoint, result, pane.tab);
+        }
         io.run("tab.select", { id: pane.tab });
         io.run("pane.focus", { pane: pane.pane });
         return result;

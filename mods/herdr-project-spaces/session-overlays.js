@@ -9,7 +9,7 @@ import { actionIO, backendStorage, CHANGED, icon, openDialog, reportError } from
 // rather than at its next poll. A failed action may have changed the session too.
 async function act(owner, session, action, extra, cx) {
   try { return await performSessionAction(session.endpoint, action, session, extra, actionIO(cx, owner)); }
-  finally { setShared(CHANGED, Date.now()); }
+  finally { setShared(CHANGED, { at: Date.now(), tabTitle: owner.tabTitle }); }
 }
 
 export class SessionMenu {
