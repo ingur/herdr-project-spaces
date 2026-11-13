@@ -90,7 +90,7 @@ export default class ProjectTree extends StockSpaces {
     // No endpoint is configured: sessions' terminals advertise theirs. Until one has, this is stock Spaces.
     this.backends = new SessionBackends({ storage: backendStorage, exec, hc, terminals });
     if (this.backends.errors.length) reportError(this.backends.errors.join("\n"));
-    // A refresh starts control per backend, every sixth timed one hc for the machines too: agent-side changes show up to ~10 s late. Actions and label changes refresh at once.
+    // A refresh starts control per backend, every sixth timed one hc for the machines too. Actions and label changes (control marks each change with `projects.changed`) refresh at once; the timer catches the rest within ~10 s.
     this.ticks = 0;
     this.sessionTimer = cx.timer.every(10000, cx => this.refreshSessions(cx, ++this.ticks % 6 === 0));
     this.refreshSessions(cx);
@@ -128,7 +128,7 @@ export default class ProjectTree extends StockSpaces {
         this.refreshingSessions = false;
         if (!this.closed) {
           if (!this.actions.size) for (const rename of tabRenames(this.backends.sessions(), panes(), spaces().flatMap(space => space.tabs ?? []), this.tabTitles)) {
-            if (rename.session) this.action("rename", { key: sessionKey(rename.session), session: rename.session }, cx, { title: rename.title, by: "human" }, { title: rename.title });
+            if (rename.session) this.action("rename", { key: sessionKey(rename.session), session: rename.session }, cx, { title: rename.title }, { title: rename.title });
             else run("tab.rename", rename);
           }
           if (previous !== JSON.stringify([this.backends.sessions(), this.backends.errors])) cx.notify();
@@ -254,9 +254,9 @@ export default class ProjectTree extends StockSpaces {
     cx.notify();
   }
 
-  // A row's click, and what the next/prev keys do. Showing a session never resumes paused work.
+  // A row's click, and what the next/prev keys do.
   open(row, cx) {
-    if (row.session) this.action("show", row, cx, openSpace(this.drawn, row.key));
+    if (row.session) this.action("open", row, cx, openSpace(this.drawn, row.key));
     else if (row.agent) run("agent.focus", { terminal: row.terminal });
     else { if (row.tab) run("tab.select", { id: row.tab }); if (row.pane) run("pane.focus", { pane: row.pane }); }
   }
@@ -344,7 +344,7 @@ export default class ProjectTree extends StockSpaces {
       .text_size(12.8).text_color(session.resolved || !row.live ? t.dim : t.foreground)
       .when(selected, el => el.bg(t.selected)).when(!selected, el => el.hover(s => s.bg(t.hover)))
       .on_hover((on, cx) => this.hoverRow(row.key, on, cx))
-      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: MOD, kind: "popup", width: 200, props: { role: "session-menu", session, show: openSpace(this.drawn, row.key) } }); })
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: MOD, kind: "popup", width: 200, props: { role: "session-menu", session, open: openSpace(this.drawn, row.key) } }); })
       .when(project, el => el.child(smallButton(`fold-project-${row.key}`, folded ? "chevron-right" : "chevron-down", `${folded ? "Expand" : "Fold"} ${session.title}`, cx => this.toggle(this.projectFolds, foldKey, "projects.folded", cx))))
       .child(programIcon(row.program))
       // As stock's truncated texts, the name carries the hover line; the row's buttons have their own.
@@ -375,7 +375,7 @@ export default class ProjectTree extends StockSpaces {
 
   render(cx) {
     const all = terminals();
-    // Refresh when a control advertisement changes, and when an overlay says it changed a session.
+    // Refresh when a control advertisement or its `projects.changed` mark changes, and when an overlay says it changed a session.
     const changed = shared(CHANGED), change = JSON.stringify(changed);
     if (change !== this.sessionChange) {
       this.sessionChange = change;
@@ -384,7 +384,7 @@ export default class ProjectTree extends StockSpaces {
       if (changed?.failed) this.changing.delete(changed.failed);
     }
     // A tab someone just named may rename its session, so that is looked at straight away too.
-    const signature = JSON.stringify([change, all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"]]),
+    const signature = JSON.stringify([change, all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"], row.labels["projects.changed"]]),
       spaces().flatMap(space => (space.tabs ?? []).map(tab => tab.named && [tab.id, tab.name]))]);
     if (signature !== this.terminalSignature) {
       this.terminalSignature = signature;

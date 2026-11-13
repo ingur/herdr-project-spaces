@@ -21,12 +21,14 @@ test("the vendored Spaces is the recorded stock file; the mod's copy differs fro
   assert.equal(patched.split("\n").filter(line => !original.has(line)).length, 12);
 });
 
-test("the tree keeps no state under a name Herdr's Spaces code already uses", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const names = async (file) => new Set([...(await readFile(new URL(`../mods/herdr-project-spaces/${file}`, import.meta.url), "utf8")).matchAll(/this\.([A-Za-z_]+) = /g)].map(match => match[1]));
+test("the tree uses no name Herdr's Spaces code already uses, for state or a method, beyond what it overrides on purpose", async () => {
+  // Every `this.x = ` and every method: stock's state would overwrite a method of ours, and a method of ours would replace stock's.
+  const names = async file => {
+    const text = await readFile(new URL(`mods/herdr-project-spaces/${file}`, root), "utf8");
+    return new Set([...text.matchAll(/this\.([A-Za-z_]+) = /g), ...text.matchAll(/^  (?:async )?([A-Za-z_]+)\(/gm)].map(match => match[1]));
+  };
   const [ours, stock] = [await names("tree.js"), await names("stock-spaces.js")];
-  // A method of ours would be overwritten by stock's state of the same name.
-  for (const match of (await readFile(new URL("../mods/herdr-project-spaces/tree.js", import.meta.url), "utf8")).matchAll(/^  (?:async )?([A-Za-z_]+)\(/gm)) ours.add(match[1]);
-  // Drag state is shared on purpose: the tree's rows use stock's drop feedback.
-  assert.deepEqual([...ours].filter(name => stock.has(name) && !["pressed", "over"].includes(name)), []);
+  // Drag state is shared so the tree's rows use stock's drop feedback; init and the methods RECIPE.md lists are overridden on purpose.
+  const shared = ["pressed", "over", "init", "ordered", "row", "compact", "render"];
+  assert.deepEqual([...ours].filter(name => stock.has(name) && !shared.includes(name)), []);
 });

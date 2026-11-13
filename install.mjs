@@ -39,9 +39,9 @@ export function replaceSpaces(layout) {
   return next;
 }
 
-// The person's keys.json `text` with `wanted`'s sections merged in: `{ text, added }`, or null when
+// The user's keys.json `text` with `wanted`'s sections merged in: `{ text, added }`, or null when
 // nothing is missing. A key is added only where neither it nor its action is bound in that section
-// yet, so what the person bound there or moved to another key stays theirs.
+// yet, so what the user bound there or moved to another key stays theirs.
 export function mergeKeys(text, wanted) {
   const keys = JSON.parse(text), added = [];
   if (!isObject(keys)) throw new Error("expected an object of key sections; left unchanged.");

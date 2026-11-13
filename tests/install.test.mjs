@@ -35,7 +35,7 @@ test("only the Spaces block's mod changes; a layout without exactly one Spaces b
   assert.throws(() => replaceSpaces(personal), /left unchanged/);
 });
 
-test("keys are added once; the person's own bindings, moved actions and other sections are kept", () => {
+test("keys are added once; the user's own bindings, moved actions and other sections are kept", () => {
   const stock = { global: { "alt-down": "agent.next", "alt-1": "space.select:1" }, terminal: { "ctrl-left": "send:\u001bb" } };
   const { text, added } = mergeKeys(`${JSON.stringify(stock, null, 2)}\n`, wanted);
   assert.ok(text.startsWith(`${JSON.stringify(stock, null, 2).slice(0, -2)},\n  "${SECTION}": {`), "existing text is only appended to");
@@ -62,7 +62,7 @@ test("the home is the one Herdr itself would use", () => {
   assert.match(herdrHome({}), /\/\.config\/herdr-app$/);
 });
 
-test("install: a home Herdr never started is refused untouched; the layout is made from main with its clicks; a second run and the person's edits change nothing", async t => {
+test("install: a home Herdr never started is refused untouched; the layout is made from main with its clicks; a second run and the user's edits change nothing", async t => {
   const home = await mkdtemp(join(tmpdir(), "herdr-project-spaces-"));
   t.after(() => rm(home, { recursive: true }));
   const text = path => readFile(join(home, path), "utf8");

@@ -1,7 +1,7 @@
 import { endpointKey, qualify, unqualify } from "./backends.js";
 
-export const sessionKey = session => JSON.stringify([endpointKey(session.endpoint), session.projectRoot, session.id]);
-export const ownsTerminal = session => session.available === true && session.terminalOwned === true && session.terminalState === "live";
+export const sessionKey = session => JSON.stringify([endpointKey(session.endpoint), session.id]);
+export const ownsTerminal = session => session.available === true && session.state !== "stopped" && !!session.terminal;
 // Fold and selection keys for the rows above sessions; session and independent rows use their own keys.
 export const spaceKey = id => `space:${id}`;
 export const projectKey = key => `project:${key}`;
@@ -27,7 +27,7 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   const byAgent = new Map(agents.map(agent => [agent.address, agent]));
   const byAddress = new Map(terminals.map(terminal => [terminal.address, terminal]));
   const registered = new Map(sessions.map(session => [sessionKey(session), session]));
-  const starting = new Set(sessions.map(session => session.id));
+  const known = new Set(sessions.map(session => session.id));
   const owned = new Set(sessions.filter(ownsTerminal).map(session => session.native.terminal).filter(Boolean));
 
   function placement(session) {
@@ -64,7 +64,7 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
       const home = placement(coordinator ?? session);
       if (!home) continue;
       const row = bySpace.get(home.id);
-      const group = { key, rank: coordinator?.rank ?? 0, projectRoot: session.projectRoot, coordinator: coordinator ? sessionRow(coordinator, home) : null,
+      const group = { key, rank: coordinator?.rank ?? 0, coordinator: coordinator ? sessionRow(coordinator, home) : null,
         title: coordinator?.title || `Unavailable project (${String(session.coordinator).slice(0, 8)})`, children: [], resolvedCount: 0 };
       // A resolved project is listed, and its threads with it, only while its space shows them.
       const listed = !coordinator?.resolved || showResolved.has(spaceKey(row.key));
@@ -90,7 +90,7 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
     if (terminal && seen.has(terminal)) return;
     // A terminal just started for a session is that session's, not a shell of its own for the
     // moment before the session registers in it.
-    if (starting.has(byAddress.get(terminal)?.labels?.["projects.session"])) return;
+    if (known.has(byAddress.get(terminal)?.labels?.["projects.session"])) return;
     const location = byTab.get(pane?.tab ?? agent?.tab);
     const target = location?.row ?? bySpace.get(agent?.space);
     if (!target) return;
@@ -181,7 +181,7 @@ const projectOf = (rows, key) =>
 // The resolved view (its key in `showResolved`) the resolved key turns on or off: the level the
 // selected row is on. In a project that is the project's resolved threads; on a space or an
 // independent row, the space's resolved projects. A focused session a resolved view hides goes
-// first: no row stands in for it, so the selection is not where the person is. Null: nothing to toggle.
+// first: no row stands in for it, so the selection is not where the user is. Null: nothing to toggle.
 export function resolvedToggle(rows, selected) {
   const hidden = rows.find(row => row.reveal);
   if (hidden) return hidden.reveal;
@@ -231,7 +231,7 @@ export function spaceDrop(rows, from, to) {
   return target && head && (head.session.endpoint.machine ?? null) === (target.space.machine ?? null) ? head : null;
 }
 
-// What `show` is told of where to open the session keyed `key`: control's `space`, an id as the
+// What `open` is told of where to open the session keyed `key`: control's `space`, an id as the
 // session's own machine knows it. A stopped session opens in the space its project is listed under,
 // as a thread goes with its project. Nothing for a running session, which is where its terminal is,
 // or while the project's space is only unavailable: control keeps what it recorded.
@@ -248,9 +248,10 @@ export function openSpace(rows, key) {
 
 // A session row's hover line: its folder, then only what the row cannot show. Dim says neither which
 // of resolved, stopped or out of reach it is, nor which other space a running terminal is in (a
-// stopped thread opens with its project, wherever it last ran).
+// stopped thread opens with its project, wherever it last ran), nor that messages wait for it.
+const waiting = session => session.state === "stopped" && session.waiting > 0 && `${session.waiting} message${session.waiting > 1 ? "s" : ""} waiting`;
 export const sessionDetail = (row, space) => [row.session.cwd, row.session.resolved && "resolved",
-  row.session.available === false ? "unavailable" : !row.live && "stopped",
+  row.session.available === false ? "unavailable" : !row.live && "stopped", waiting(row.session),
   row.live && row.placement.id !== space.id && `in ${row.placement.name}`].filter(Boolean).join(" · ");
 
 // Single-pane tabs and their sessions follow whichever title changed. Keep the last observed session

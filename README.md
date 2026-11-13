@@ -2,7 +2,13 @@
 
 A [herdr](https://herdr.dev) sidebar that shows [pi-projects](https://github.com/ingur/pi-projects) under each space: projects, their threads, agents and shells.
 
-It is herdr's own Spaces panel with a few rows added. Everything else stays stock.
+It is a copy of herdr's own Spaces panel. What it changes there:
+
+- each space lists its projects, their threads, and its other agents and shells under it;
+- a space row gets a fold arrow in front and, behind, the status of what a fold hides and, on hover, an archive button and a `+` for a new terminal;
+- the filled row is the focused terminal's row, not the active space;
+- dropping a project on a space moves the project there;
+- a space that cannot be read keeps its projects under a dim row (a folder cell in the narrow rail).
 
 ## Install
 

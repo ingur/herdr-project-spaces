@@ -49,7 +49,7 @@ export class SessionMenu {
     cx.spawn(async cx => {
       try {
         // shortcut: where a stopped session opens was decided as this menu opened; decide here if menus ever stay open long.
-        await act(this, session, item.action, item.action === "show" ? this.options.show : {}, cx);
+        await act(this, session, item.action, item.action === "open" ? this.options.open : {}, cx);
         closeOverlay(this.options.overlay);
       } catch (error) { reportError(error); }
       finally { this.busy = false; if (!this.closed) cx.notify(); }
@@ -119,7 +119,7 @@ export class NameSession {
     cx.notify();
     cx.spawn(async cx => {
       try {
-        const result = this.create ? await act(this, session, "create-thread", title ? { title, by: "human" } : {}, cx) : await act(this, session, "rename", { title }, cx);
+        const result = this.create ? await act(this, session, "create-thread", title ? { title } : {}, cx) : await act(this, session, "rename", { title }, cx);
         closeOverlay(this.options.overlay);
         if (result.focusError) notify({ title: `Thread "${result.title}" created`, body: `Click its row to open it; do not create another thread to retry. ${result.focusError}`, level: "info" });
       } catch (error) { this.error = errorText(error); }

@@ -1,28 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceRows, stepRow } from "../mods/herdr-project-spaces/projection.js";
+import { tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, resolvedToggle, selectedKey, sessionKey, spaceDrop, spaceItems, spaceRows, stepRow } from "../mods/herdr-project-spaces/projection.js";
 import { qualify } from "../mods/herdr-project-spaces/backends.js";
 
-const endpoint = (machine = null, stateDir = "/state") => ({ version: 1, command: ["/bin/node", "/control.mjs"], stateDir, machine });
+const endpoint = (machine = null, stateDir = "/state") => ({ version: 2, command: ["/bin/node", "/control.mjs"], stateDir, machine });
 const space = (id, tabs, extra = {}) => ({ id, name: id, machine: null, folder: "/workspace", tabs: tabs.map(id => ({ id, name: "same title", named: true })), ...extra });
 const session = (id, coordinator = id, extra = {}) => {
-  const record = { id, coordinator, role: id === coordinator ? "coordinator" : "thread", title: "same title", projectRoot: "/project", cwd: "/project", space: "one", rank: 0, writer: "dead", terminalOwned: false, terminalState: "not-observed", resolved: false, endpoint: endpoint(), available: true, ...extra };
+  const record = { id, coordinator, role: id === coordinator ? "coordinator" : "thread", title: "same title", cwd: "/project", space: "one", rank: 0, state: "stopped", resolved: false, endpoint: endpoint(), available: true, ...extra };
   return { ...record, native: { space: qualify(record.endpoint.machine, record.space), tab: qualify(record.endpoint.machine, record.tab), terminal: qualify(record.endpoint.machine, record.terminal) } };
 };
 const world = { spaces: [space("one", ["tab-one"]), space("two", ["tab-two"])], panes: [], agents: [] };
-const live = { terminalOwned: true, terminalState: "live", writer: "live" };
+const live = { state: "running" };
 
-test("coordinators sharing title/cwd remain distinct by machine, backend, project and UUID", () => {
+test("coordinators sharing title/cwd remain distinct by machine, backend and id", () => {
   const sessions = [session("c1"), session("c2"), session("t1", "c1"), session("t2", "c2"),
-    session("c1", "c1", { projectRoot: "/another" }), session("c1", "c1", { endpoint: endpoint(null, "/other-state") }),
+    session("c1", "c1", { endpoint: endpoint(null, "/other-state") }),
     session("c1", "c1", { endpoint: endpoint("remote") }), session("t1", "c1", { endpoint: endpoint("remote") })];
   const rows = projectSpaces({ ...world, sessions });
   const groups = rows.flatMap(row => row.groups);
-  assert.equal(groups.length, 5);
-  assert.equal(new Set(groups.map(group => group.key)).size, 5);
+  assert.equal(groups.length, 4);
+  assert.equal(new Set(groups.map(group => group.key)).size, 4);
   assert.deepEqual(groups[0].children.map(row => row.key), [sessionKey(sessions[2])]);
-  assert.deepEqual(groups[4].children.map(row => row.key), [sessionKey(sessions[7])]);
-  assert.equal(groups[4].children[0].placement.id, "remote/one");
+  assert.deepEqual(groups[3].children.map(row => row.key), [sessionKey(sessions[6])]);
+  assert.equal(groups[3].children[0].placement.id, "remote/one");
 });
 
 test("moved thread stays under owner; unrelated terminals and independent agents stay visible", () => {
@@ -54,7 +54,7 @@ test("resolved visibility is per project, without reopening or leaking an owned 
 
 test("only freshly verified ownership hides or follows a terminal", () => {
   const panes = [{ pane: "shell", terminal: "t2", tab: "tab-two", title: "normal shell" }];
-  for (const extra of [{}, { writer: "live" }, { ...live, available: false }, { ...live, terminalState: "finished" }]) {
+  for (const extra of [{}, { ...live, available: false }]) {
     const sessions = [session("c", "c", { terminal: "t2", tab: "tab-one", ...extra })];
     const rows = projectSpaces({ ...world, sessions, panes });
     assert.equal(rows[0].groups[0].coordinator.placement.id, "one");
@@ -187,7 +187,7 @@ test("the resolved key toggles the level the selection is on, or the view that h
   assert.equal(resolvedToggle(rows(), "space:one"), "space:one");
   assert.equal(resolvedToggle(rows(), "t3"), "space:two", "an independent row is on its space's level");
   assert.equal(resolvedToggle(rows(), "nowhere"), null);
-  // No row stands in for a hidden session, so the selection is the active space: not where the person is.
+  // No row stands in for a hidden session, so the selection is the active space: not where the user is.
   assert.equal(resolvedToggle(rows("t1"), "space:two"), key("p"), "a resolved thread is brought back by its project's view");
   assert.equal(resolvedToggle(rows("t2"), "space:two"), "space:one", "a thread of a resolved project by its space's view");
 });
@@ -243,15 +243,7 @@ test("only a project is dropped on a space: by its head, on another space of its
   for (const [from, to] of refused) assert.equal(spaceDrop(rows, from, to), null, `${from} on ${to}`);
 });
 
-test("a session's hover line is its folder, then only what its row does not show", () => {
-  const line = (session, live = true, placement = "one") => sessionDetail({ session: { cwd: "/project", available: true, ...session }, live, placement: { id: placement, name: placement } }, { id: "one" }).split(" · ");
-  assert.deepEqual(line({}), ["/project"], "running, open and in its project's space: nothing to add");
-  assert.equal(line({ resolved: true }, false).length, 3, "resolved and stopped both dim the row");
-  assert.equal(line({ available: false }, false).length, 2, "out of reach is not called stopped");
-  assert.match(line({}, true, "two")[1], /two$/, "a terminal running in another space names it");
-});
-
-test("a synced tab rename requests one human session rename, even while control is pending or failed", () => {
+test("a synced tab rename requests one session rename by the user, even while control is pending or failed", () => {
   for (const id of ["project", "thread"]) {
     const record = session(id, "project", { title: "Before", terminal: "t1", ...live });
     const panes = [{ terminal: "t1", tab: "a" }], applied = new Map();
@@ -262,10 +254,10 @@ test("a synced tab rename requests one human session rename, even while control 
     assert.deepEqual(sync(), [], "requesting a tab title alone is not evidence that the tab showed it");
     Object.assign(tab, { name: "Before", named: true });
     assert.deepEqual(sync(), []);
-    tab.name = "Human name";
-    assert.deepEqual(sync(), [{ session: record, title: "Human name" }]);
+    tab.name = "User name";
+    assert.deepEqual(sync(), [{ session: record, title: "User name" }]);
     assert.deepEqual(sync(), [], "a stale session snapshot neither repeats the request nor restores the old tab name");
-    assert.deepEqual(sync({ ...record, title: "Human name" }), [], "control's acknowledgement does not bounce back");
+    assert.deepEqual(sync({ ...record, title: "User name" }), [], "control's acknowledgement does not bounce back");
   }
 });
 
@@ -302,7 +294,7 @@ test("multi-pane tabs and terminals the session does not own never rename sessio
   Object.assign(tab, { name: "Split name", panes: 2 });
   assert.deepEqual(tabRenames([record], [...panes, { terminal: "t2", tab: "a" }], [tab], applied), []);
   tab.panes = 1;
-  for (const extra of [{ available: false }, { terminalOwned: false }, { terminalState: "finished" }]) {
+  for (const extra of [{ available: false }, { state: "stopped" }]) {
     assert.deepEqual(tabRenames([{ ...record, ...extra }], panes, [tab], applied), []);
   }
 });
@@ -317,7 +309,7 @@ test("a tab's name names its only pane; a split beside it is named by what runs 
 });
 
 test("a tab gets its number back when its session leaves and a split stays behind", () => {
-  const live = { id: "x", title: "Thread", projectRoot: "/p", endpoint: { machine: null, stateDir: "/s" }, available: true, terminalOwned: true, terminalState: "live", native: { terminal: "t1" } };
+  const live = { id: "x", title: "Thread", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "running", terminal: "t1", native: { terminal: "t1" } };
   const applied = new Map();
   assert.deepEqual(tabRenames([live], [{ terminal: "t1", tab: "a" }], [{ id: "a", named: false, name: "1", panes: 1 }], applied), [{ id: "a", name: "Thread" }]);
   const split = [{ id: "a", named: true, name: "Thread", panes: 2 }];
@@ -328,7 +320,7 @@ test("a tab gets its number back when its session leaves and a split stays behin
 });
 
 test("a tab already showing the title after a reload is synced, so renaming it renames the session", () => {
-  const live = { id: "x", title: "Docs", projectRoot: "/p", endpoint: { machine: null, stateDir: "/s" }, available: true, terminalOwned: true, terminalState: "live", native: { terminal: "t1" } };
+  const live = { id: "x", title: "Docs", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "running", terminal: "t1", native: { terminal: "t1" } };
   const panes = [{ terminal: "t1", tab: "a" }], applied = new Map();
   assert.deepEqual(tabRenames([live], panes, [{ id: "a", named: true, name: "Docs", panes: 1 }], applied), []);
   const renames = tabRenames([live], panes, [{ id: "a", named: true, name: "API docs", panes: 1 }], applied);
@@ -337,7 +329,7 @@ test("a tab already showing the title after a reload is synced, so renaming it r
 
 test("a terminal started for a session is never listed as a shell of its own while it registers", () => {
   const spaces = [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "1", named: false, panes: 1 }] }];
-  const stopped = { id: "x", coordinator: "x", role: "coordinator", title: "Project", projectRoot: "/p", endpoint: { machine: null, stateDir: "/s" }, available: true, terminalOwned: false, terminalState: "finished", native: { space: "one" } };
+  const stopped = { id: "x", coordinator: "x", role: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
   const row = projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents: [], sessions: [stopped],
     terminals: [{ address: "t9", argv: ["pi"], labels: { "projects.session": "x" } }] })[0];
   assert.deepEqual(row.entries, []);

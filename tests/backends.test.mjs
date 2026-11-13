@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SessionBackends, authorizeEndpoint, discoverEndpoints, endpointDescriptor, endpointKey, invoke, sessionRecord } from "../mods/herdr-project-spaces/backends.js";
 
-const descriptor = { version: 1, command: ["/usr/bin/runtime", "/control", "--fixed-arg"], stateDir: "/state" };
+const descriptor = { version: 2, command: ["/usr/bin/runtime", "/control", "--fixed-arg"], stateDir: "/state" };
 const local = endpointDescriptor(descriptor);
 const remote = endpointDescriptor(descriptor, "buildbox");
-const record = { id: "session", coordinator: "session", role: "coordinator", title: "Project", projectRoot: "/project", cwd: "/project", space: "s1", tab: "tab1", terminal: "t1", terminalOwned: true, terminalState: "live", rank: 1 };
+const record = { id: "session", coordinator: "session", role: "coordinator", title: "Project", cwd: "/project", space: "s1", tab: "tab1", terminal: "t1", state: "running", status: "idle", waiting: 0, rank: 1 };
 const ok = value => ({ code: 0, stdout: JSON.stringify(value), stderr: "" });
 const terminal = (address, value = descriptor, state = "live") => ({ address, state, labels: { "projects.control": JSON.stringify(value) } });
 const storage = () => { const map = new Map(); return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) }; };
@@ -13,11 +13,11 @@ const hc = async () => ok({ machines: [] });
 
 test("live terminals advertise endpoints: none chooses its machine, a finished one is history, an unknown version is said once", () => {
   const found = discoverEndpoints([terminal("buildbox/t1b", { ...descriptor, machine: "attacker" }), terminal("t9z"), terminal("t9y"),
-    terminal("t8", { ...descriptor, stateDir: "/old-state" }, "finished"), terminal("other/t4", { ...descriptor, version: 2 }), terminal("other/t5", { version: 2 }), terminal("invalid/address/t5")]);
+    terminal("t8", { ...descriptor, stateDir: "/old-state" }, "finished"), terminal("other/t4", { ...descriptor, version: 1 }), terminal("other/t5", { version: 1 }), terminal("invalid/address/t5")]);
   assert.deepEqual(found.endpoints.map(endpoint => [endpoint.machine, endpoint.stateDir]), [["buildbox", "/state"], [null, "/state"]]);
   assert.notEqual(endpointKey(found.endpoints[0]), endpointKey(found.endpoints[1]));
   assert.equal(found.errors.length, 2);
-  assert.match(found.errors[0], /version 2; this sidebar knows version 1/);
+  assert.match(found.errors[0], /version 1;/);
   assert.match(found.errors[1], /^invalid\/address\/t5: /);
 });
 
@@ -45,10 +45,10 @@ test("with no endpoint advertised or remembered nothing is started, reported or 
   const backends = new SessionBackends({ storage: saved, hc: count, exec: count, terminals: () => observed });
   await backends.refresh();
   assert.deepEqual([backends.errors, backends.sessions(), started, saved.getItem("projects.backends")], [[], [], 0, null]);
-  observed = [terminal("t3", { ...descriptor, version: 2 }), terminal("t4", { ...descriptor, version: 2 })];
+  observed = [terminal("t3", { ...descriptor, version: 1 }), terminal("t4", { ...descriptor, version: 1 })];
   await backends.refresh();
   assert.equal(backends.errors.length, 1);
-  assert.match(backends.errors[0], /version 2; this sidebar knows version 1/);
+  assert.match(backends.errors[0], /version 1;/);
   assert.deepEqual([backends.sessions(), started, saved.getItem("projects.backends")], [[], 0, null]);
 });
 
@@ -126,5 +126,7 @@ test("control cannot smuggle qualified placement into another host", () => {
   for (const key of ["space", "tab", "terminal"]) assert.throws(() => sessionRecord({ ...record, [key]: "another/identity" }), /non-local/);
   assert.throws(() => sessionRecord({ ...record, coordinator: "someone-else" }), /identity/);
   for (const rank of [undefined, null, "1", NaN, Infinity]) assert.throws(() => sessionRecord({ ...record, rank }), /numeric rank/);
+  // A session of no known state must never pass for one with a terminal.
+  for (const state of [undefined, "live", "finished"]) assert.throws(() => sessionRecord({ ...record, state }), /state/);
   assert.equal(sessionRecord(record), record);
 });
