@@ -1,0 +1,11 @@
+{
+  "layout:Projects": {
+    "cmd-down": "herdr-project-spaces.next",
+    "cmd-up": "herdr-project-spaces.prev",
+    "cmd-shift-left": "herdr-project-spaces.fold",
+    "cmd-shift-right": "herdr-project-spaces.unfold",
+    "cmd-shift-up": "herdr-project-spaces.move-up",
+    "cmd-shift-down": "herdr-project-spaces.move-down",
+    "cmd-shift-r": "herdr-project-spaces.toggle-resolved"
+  }
+}

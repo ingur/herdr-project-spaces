@@ -1,0 +1,11 @@
+{
+  "layout:Projects": {
+    "alt-down": "herdr-project-spaces.next",
+    "alt-up": "herdr-project-spaces.prev",
+    "alt-shift-left": "herdr-project-spaces.fold",
+    "alt-shift-right": "herdr-project-spaces.unfold",
+    "alt-shift-up": "herdr-project-spaces.move-up",
+    "alt-shift-down": "herdr-project-spaces.move-down",
+    "alt-shift-r": "herdr-project-spaces.toggle-resolved"
+  }
+}
