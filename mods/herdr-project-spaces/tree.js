@@ -3,10 +3,12 @@ import { Button, h_flex, v_flex } from "gpui-base";
 import { agents, exec, hc, machines, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, theme, updates } from "herdr";
 import StockSpaces, { STOCK_VERSION } from "./stock-spaces.js";
 import { SessionBackends, authorizeEndpoint, errorText, unqualify } from "./backends.js";
-import { UNPLACED, displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, spaceDrop, spaceItems, spaceKey, spaceRows, stepRow, tabRenames, urgentStatus } from "./projection.js";
+import { UNPLACED, displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, spaceDrop, spaceItems, spaceKey, spaceRows, stepRow, tabRenames, urgentStatus } from "./projection.js";
 import { performSessionAction } from "./actions.js";
 
 export const MOD = "herdr-project-spaces";
+// The mod's dialogs open as Herdr opens its own prompt and confirm: 380 wide and, with no height given, as high as their content.
+export const openDialog = (role, session) => openOverlay({ mod: MOD, kind: "dialog", width: 380, props: { role, session } });
 export const backendStorage = {
   getItem: key => shared(`${MOD}.${key}`),
   setItem: (key, value) => { if (shared(`${MOD}.${key}`) !== value) setShared(`${MOD}.${key}`, value); },
@@ -40,6 +42,8 @@ export function smallButton(id, glyph, title, action, selected = false) {
     .on_mouse_up("left", (_e, cx) => cx.stop_propagation())
     .on_click((_e, cx) => { cx.stop_propagation(); action(cx); }).child(icon(glyph, 11));
 }
+// The place of a hover control while it is hidden: nothing in the row moves when it shows.
+const slot = () => div().size(20).flex_none();
 
 // Stock's compact status for the most urgent of `rows` (a spinner while working, a dot when done
 // or blocked, nothing when idle), then a small dim count of the rows a fold hides.
@@ -141,7 +145,7 @@ export default class ProjectTree extends StockSpaces {
   // exists, so its threads show as the dialog opens.
   newThread(row, cx) {
     if (this.projectFolds.has(projectKey(row.key))) this.toggle(this.projectFolds, projectKey(row.key), "projects.folded", cx);
-    openOverlay({ mod: MOD, kind: "dialog", width: 400, height: 250, props: { role: "new-thread", session: row.session } });
+    openDialog("new-thread", row.session);
   }
 
   // keys.json's fold / unfold, on the selected row.
@@ -233,17 +237,20 @@ export default class ProjectTree extends StockSpaces {
     return [smallButton(`fold-${key}`, folded ? "chevron-right" : "chevron-down", `${folded ? "Expand" : "Fold"} ${space.name}`, cx => this.toggle(this.projectFolds, key, "projects.folded", cx))];
   }
 
-  // The archive button of a resolved view (`key` in `showResolved`), where there are resolved `what` to show or they show.
-  archive(key, count, what) {
+  // The archive button of a resolved view (`key` in `showResolved`), where there are resolved `what`
+  // to show or they show: on the hovered row, as its `+`, and while the view is on, which it then says.
+  archive(key, count, what, hovered) {
     const on = this.showResolved.has(key);
-    return count || on ? [smallButton(`archives-${key}`, "archive", `${on ? "Hide" : "Show"} resolved ${what} (${count})`, cx => this.toggle(this.showResolved, key, "projects.resolved", cx), on)] : [];
+    if (!count && !on) return [];
+    return [on || hovered ? smallButton(`archives-${key}`, "archive", `${on ? "Hide" : "Show"} resolved ${what} (${count})`, cx => this.toggle(this.showResolved, key, "projects.resolved", cx), on) : slot()];
   }
 
-  rowTrailing(space, t) {
-    const key = spaceKey(space.id), row = this.projection.get(space.id);
+  // `missing`: the row of a space that is gone or out of reach, where no terminal can start.
+  rowTrailing(space, t, missing) {
+    const key = spaceKey(space.id), row = this.projection.get(space.id), hovered = this.hoveredRow === key;
     const hidden = row && this.projectFolds.has(key) ? spaceRows(row) : [];
-    return [...marks(hidden, hidden.length, t), ...this.archive(key, row?.resolvedCount ?? 0, "projects"),
-      ...(this.hoveredRow === key ? [smallButton(`shell-${space.id}`, "plus", `New terminal in ${space.name}`, () => run("tab.new", { space: space.id }))] : [])];
+    return [...marks(hidden, hidden.length, t), ...this.archive(key, row?.resolvedCount ?? 0, "projects", hovered),
+      ...(missing ? [] : [hovered ? smallButton(`shell-${space.id}`, "plus", `New terminal in ${space.name}`, () => run("tab.new", { space: space.id })) : slot()])];
   }
 
   // Stock's hook for a row that is no space, dropped on space `w`: what the drop does when the row
@@ -263,12 +270,12 @@ export default class ProjectTree extends StockSpaces {
     const row = this.projection.get(native.w.id), key = spaceKey(native.w.id), selected = this.selected === key;
     if (row) this.drawn.push(row);
     const missing = row?.missing || native.snapshot;
-    const head = missing ? h_flex().h(30).px(8).gap(9).items_center().rounded(8).text_color(t.dim)
-      .when(selected, el => el.bg(t.selected))
-      .tooltip(native.w.id === UNPLACED ? "Projects whose space is gone. Opening one brings it into the space you are in; dragging it onto a space puts it there."
-        : `Space ${native.w.id} is unavailable; retained project sessions may be opened after its machine and layout reconnect.`)
+    const head = missing ? h_flex().id(`space-${native.w.id}`).h(30).px(8).gap(9).items_center().rounded(8).text_color(t.dim)
+      .when(selected, el => el.bg(t.selected)).on_hover((on, cx) => this.hoverRow(key, on, cx))
       .children(this.rowLeading(native.w)).child(icon("folder"))
-      .child(div().flex_1().truncate().child(native.w.name)).children(this.rowTrailing(native.w, t))
+      .child(div().flex_1().truncate().tooltip(native.w.id === UNPLACED ? "Projects whose space is gone; one opens in the space you are in."
+        : "Out of reach; its projects open again once its machine reconnects.").child(native.w.name))
+      .children(this.rowTrailing(native.w, t, true))
       // Stock fills the row of the `active` space; here the selected row has the fill, which a session's may be.
       : super.row({ ...native, w: { ...native.w, active: selected } }, t).on_hover((on, cx) => this.hoverRow(key, on, cx));
     return v_flex().flex_none().child(head).when(!this.projectFolds.has(key) && !!row, el => el.children(
@@ -282,23 +289,21 @@ export default class ProjectTree extends StockSpaces {
   }
 
   sessionRow(row, group, anchor) {
-    const t = theme(), session = row.session, project = !!group, selected = this.selected === row.key;
+    const t = theme(), session = row.session, project = !!group, selected = this.selected === row.key, hovered = this.hoveredRow === row.key;
     const foldKey = projectKey(row.key), folded = project && this.projectFolds.has(foldKey), hidden = folded ? group.children : [];
-    // A stopped thread opens with its project, wherever it last ran: only a running one is elsewhere.
-    const detail = [session.title, session.cwd, session.resolved && "Resolved (your next prompt reopens it)",
-      session.availabilityError, session.error, row.live && row.placement.id !== anchor.id && `Terminal in ${row.placement.name}`].filter(Boolean).join("\n");
     const controls = project ? [
-      ...this.archive(group.key, group.resolvedCount, "threads"),
-      this.hoveredRow === row.key ? smallButton(`thread-${row.key}`, "plus", `New thread in ${session.title}`, cx => this.newThread(row, cx)) : div().w(20).flex_none(),
+      ...this.archive(group.key, group.resolvedCount, "threads", hovered),
+      hovered ? smallButton(`thread-${row.key}`, "plus", `New thread in ${session.title}`, cx => this.newThread(row, cx)) : slot(),
     ] : [];
     return this.draggable(h_flex().id(`session-${row.key}`).h(28).flex_none().pl(project ? 26 : 73).pr(8).gap(7).items_center().rounded(7)
       .text_size(12.8).text_color(session.resolved || !row.live ? t.dim : t.foreground)
-      .when(selected, el => el.bg(t.selected)).when(!selected, el => el.hover(s => s.bg(t.hover))).tooltip(detail)
+      .when(selected, el => el.bg(t.selected)).when(!selected, el => el.hover(s => s.bg(t.hover)))
       .on_hover((on, cx) => this.hoverRow(row.key, on, cx))
-      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: MOD, kind: "popup", width: 210, height: 210, props: { role: "session-menu", session, show: openSpace(this.drawn, row.key) } }); })
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: MOD, kind: "popup", width: 200, props: { role: "session-menu", session, show: openSpace(this.drawn, row.key) } }); })
       .when(project, el => el.child(smallButton(`fold-project-${row.key}`, folded ? "chevron-right" : "chevron-down", `${folded ? "Expand" : "Fold"} ${session.title}`, cx => this.toggle(this.projectFolds, foldKey, "projects.folded", cx))))
       .child(programIcon(row.program))
-      .child(div().flex_1().min_w(0).truncate().child(session.title))
+      // As stock's truncated texts, the name carries the hover line; the row's buttons have their own.
+      .child(div().flex_1().min_w(0).truncate().tooltip(sessionDetail(row, anchor)).child(session.title))
       .children(marks([row, ...hidden], hidden.length, t))
       .children(controls), row, t);
   }
@@ -307,10 +312,10 @@ export default class ProjectTree extends StockSpaces {
     const t = theme(), key = projectKey(group.key), folded = this.projectFolds.has(key), hidden = folded ? group.children : [];
     const head = group.coordinator ? this.sessionRow(group.coordinator, group, space) : h_flex().h(28).pl(26).pr(8).gap(7).items_center().rounded(7).text_color(t.dim)
       .when(this.selected === group.key, el => el.bg(t.selected))
-      .child(smallButton(`fold-${key}`, folded ? "chevron-right" : "chevron-down", group.title, cx => this.toggle(this.projectFolds, key, "projects.folded", cx)))
+      .child(smallButton(`fold-${key}`, folded ? "chevron-right" : "chevron-down", `${folded ? "Expand" : "Fold"} ${group.title}`, cx => this.toggle(this.projectFolds, key, "projects.folded", cx)))
       .child(div().flex_1().truncate().child(group.title))
       .children(marks(hidden, hidden.length, t))
-      .child(smallButton(`archives-${group.key}`, "archive", "Show or hide resolved threads", cx => this.toggle(this.showResolved, group.key, "projects.resolved", cx), this.showResolved.has(group.key)));
+      .children(this.archive(group.key, group.resolvedCount, "threads", true));
     return [head, ...(folded ? [] : group.children.map(row => this.sessionRow(row, null, space)))];
   }
 
@@ -318,9 +323,8 @@ export default class ProjectTree extends StockSpaces {
     const t = theme(), selected = this.selected === entry.key;
     return this.draggable(h_flex().id(`independent-${entry.key}`).h(28).pl(53).pr(8).gap(7).items_center().rounded(7)
       .text_size(12.8).text_color(t.foreground).when(selected, el => el.bg(t.selected)).when(!selected, el => el.hover(s => s.bg(t.hover)))
-      .tooltip([entry.title, entry.cwd].filter(Boolean).join("\n"))
       .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "pane", target: { pane: entry.pane, terminal: entry.terminal } } }))
-      .child(programIcon(entry.program)).child(div().flex_1().min_w(0).truncate().child(entry.title))
+      .child(programIcon(entry.program)).child(div().flex_1().min_w(0).truncate().when(!!entry.cwd, el => el.tooltip(entry.cwd)).child(entry.title))
       .children(marks([entry], 0, t)), entry, t);
   }
 

@@ -243,6 +243,13 @@ export function openSpace(rows, key) {
   return {};
 }
 
+// A session row's hover line: its folder, then only what the row cannot show. Dim says neither which
+// of resolved, stopped or out of reach it is, nor which other space a running terminal is in (a
+// stopped thread opens with its project, wherever it last ran).
+export const sessionDetail = (row, space) => [row.session.cwd, row.session.resolved && "resolved",
+  row.session.available === false ? "unavailable" : !row.live && "stopped",
+  row.live && row.placement.id !== space.id && `in ${row.placement.name}`].filter(Boolean).join(" · ");
+
 // Tab names follow session titles however a session was made or renamed. A name someone gave the tab
 // stays: only an unnamed tab, or one still showing the title last applied here, is renamed.
 // `applied` (session key -> title) is updated in place.

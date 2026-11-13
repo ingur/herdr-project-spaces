@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { performSessionAction } from "../mods/herdr-project-spaces/actions.js";
+import { deletion, performSessionAction, sessionMenu } from "../mods/herdr-project-spaces/actions.js";
 
 const endpoint = { version: 1, command: ["/runtime", "/control"], stateDir: "/state", machine: "buildbox" };
 const record = { id: "project", coordinator: "project", role: "coordinator", title: "Project", projectRoot: "/project", cwd: "/project", space: "s1", tab: "tab1", terminal: "t1", terminalOwned: true, terminalState: "live", readyToFocus: true, resolved: false, rank: 1 };
@@ -107,6 +107,13 @@ test("delete goes through control alone; a deletion control did not confirm is a
   const failed = harness(() => record);
   failed.io.exec = async () => ({ code: 1, stdout: "", stderr: "projects: a writer is still live; already deleted: thread\n" });
   await assert.rejects(performSessionAction(endpoint, "delete", record, {}, failed.io), /already deleted: thread/);
+});
+
+test("the menu closes only a running terminal of the session's own and resolves only what is open; a project's deletion counts its threads", () => {
+  const actions = extra => sessionMenu({ ...record, ...extra }).map(item => item.action);
+  assert.deepEqual(actions({}), ["rename", "show", "close", "resolve", "delete"]);
+  assert.deepEqual(actions({ terminalState: "exited", resolved: true }), ["rename", "show", "delete"]);
+  assert.match(deletion(record, [record, child, { ...child, id: "other" }, { ...child, coordinator: "elsewhere" }]).detail, /\b2\b/);
 });
 
 test("show and place hand their space to control, which alone places; a show with nowhere to open asks nothing of it", async () => {

@@ -1,12 +1,16 @@
 import { errorText, invoke, qualify, sessionRecord } from "./backends.js";
 
-// No Reopen: a person's next prompt in a resolved project or thread reopens it. Delete is last, as stock's Close.
+const kind = session => session.role === "thread" ? "thread" : "project";
+
+// No Reopen: a person's next prompt in a resolved project or thread reopens it. What ends something
+// comes last, as stock's Close: the menu draws its one line above Resolve, or above Delete alone.
 export const sessionMenu = session => [
-  { title: "Rename", action: "rename", icon: "square-pen" },
+  { title: `Rename ${kind(session)}`, action: "rename", icon: "square-pen" },
   { title: "Open terminal", action: "show", icon: "terminal" },
   ...(session.available !== false && session.terminalOwned && session.terminalState === "live" ? [{ title: "Close terminal", action: "close", icon: "x" }] : []),
-  ...(!session.resolved ? [{ title: "Resolve", action: "resolve", icon: "check" }] : []),
-  { title: "Delete…", action: "delete", icon: "minus" },
+  ...(!session.resolved ? [{ title: `Resolve ${kind(session)}`, action: "resolve", icon: "check" }] : []),
+  // Herdr ships no bin: `x` is its glyph for what ends something and is Close's here, so the plain minus.
+  { title: `Delete ${kind(session)}…`, action: "delete", icon: "minus" },
 ];
 
 // What the delete dialog says goes with `session`. `records` are its backend's sessions: every
@@ -14,9 +18,9 @@ export const sessionMenu = session => [
 export function deletion(session, records) {
   const threads = records.filter(record => record.role === "thread" && record.projectRoot === session.projectRoot && record.coordinator === session.id).length;
   return {
-    title: session.role === "thread" ? "Delete thread?" : "Delete project?",
-    detail: `Removes “${session.title}” for good: its conversation and its messages${threads ? `, and its ${threads} thread${threads > 1 ? "s" : ""} with theirs` : ""}. What still runs is stopped first.`,
-    kept: "Files in the repository are not touched.",
+    title: `Delete ${kind(session)}?`,
+    detail: `Deletes “${session.title}”${threads ? `, its ${threads} thread${threads > 1 ? "s" : ""} and their conversations` : " and its conversation"}.`,
+    kept: "Repository files are not touched.",
   };
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { UNPLACED, tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, resolvedToggle, selectedKey, sessionKey, spaceDrop, spaceItems, spaceRows, stepRow } from "../mods/herdr-project-spaces/projection.js";
+import { UNPLACED, tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceRows, stepRow } from "../mods/herdr-project-spaces/projection.js";
 import { qualify } from "../mods/herdr-project-spaces/backends.js";
 
 const endpoint = (machine = null, stateDir = "/state") => ({ version: 1, command: ["/bin/node", "/control.mjs"], stateDir, machine });
@@ -235,6 +235,14 @@ test("only a project is dropped on a space: by its head, on another space of its
     [key("home"), UNPLACED], [key("home"), "nowhere"], [null, "two"],
   ];
   for (const [from, to] of refused) assert.equal(spaceDrop(rows, from, to), null, `${from} on ${to}`);
+});
+
+test("a session's hover line is its folder, then only what its row does not show", () => {
+  const line = (session, live = true, placement = "one") => sessionDetail({ session: { cwd: "/project", available: true, ...session }, live, placement: { id: placement, name: placement } }, { id: "one" }).split(" · ");
+  assert.deepEqual(line({}), ["/project"], "running, open and in its project's space: nothing to add");
+  assert.equal(line({ resolved: true }, false).length, 3, "resolved and stopped both dim the row");
+  assert.equal(line({ available: false }, false).length, 2, "out of reach is not called stopped");
+  assert.match(line({}, true, "two")[1], /two$/, "a terminal running in another space names it");
 });
 
 test("tab names follow session titles but never replace a name someone gave the tab", () => {

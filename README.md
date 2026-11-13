@@ -28,7 +28,7 @@ node herdr-project-spaces/install.mjs
 | Click a row | open it |
 | `+` on a project | new thread |
 | Right-click | rename, close, resolve, delete |
-| Archive icon | show or hide resolved ones |
+| Archive icon (on hover) | show or hide resolved ones |
 | Drag | reorder; drag a stopped project onto another space to move it |
 
 Keys (macOS uses `cmd` instead of `alt`):
