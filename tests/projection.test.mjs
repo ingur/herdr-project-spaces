@@ -335,3 +335,11 @@ test("a terminal started for a session is never listed as a shell of its own whi
   assert.deepEqual(row.entries, []);
   assert.equal(row.groups.length, 1);
 });
+
+test("a shell its agent died in is listed as a shell again", () => {
+  const spaces = [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "1", named: false, panes: 1 }] }];
+  const stopped = { id: "x", coordinator: "x", role: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
+  const row = projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents: [], sessions: [stopped],
+    terminals: [{ address: "t9", argv: ["zsh"], labels: { "projects.session": "x", "projects.pid": "123" } }] })[0];
+  assert.equal(row.entries.length, 1);
+});
