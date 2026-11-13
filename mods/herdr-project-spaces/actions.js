@@ -7,7 +7,7 @@ const kind = session => session.role === "thread" ? "thread" : "project";
 export const sessionMenu = session => [
   { title: `Rename ${kind(session)}`, action: "rename", icon: "square-pen" },
   { title: "Open terminal", action: "show", icon: "terminal" },
-  ...(session.available !== false && session.terminalOwned && session.terminalState === "live" ? [{ title: "Close terminal", action: "close", icon: "x" }] : []),
+  ...(session.available !== false && session.terminalOwned && session.terminalState === "live" ? [{ title: `Close ${kind(session)}`, action: "close", icon: "x" }] : []),
   ...(!session.resolved ? [{ title: `Resolve ${kind(session)}`, action: "resolve", icon: "check" }] : []),
   { title: `Delete ${kind(session)}`, action: "delete", icon: "trash" },
 ];
