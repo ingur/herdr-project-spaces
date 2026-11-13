@@ -79,7 +79,7 @@ export default class ProjectTree extends StockSpaces {
     this.drawn = [];
     this.tabTitles = new Map();
     this.moved = new Map();
-    this.pending = new Map();
+    this.changing = new Map();
     // The Spaces this extends is one Herdr release's copy: say so once for each other release it runs in.
     // Read leniently: this is the one line meant for a Herdr it was not written against.
     const app = updates()?.app?.version;
@@ -144,18 +144,18 @@ export default class ProjectTree extends StockSpaces {
     cx.notify();
   }
 
-  // `pending` (the fields this action changes) shows on the row at once; see withPending().
+  // `changing` (the fields this action changes) shows on the row at once; see withPending().
   action(action, row, cx, extra = {}, pending) {
     if (this.actions.has(row.key) || this.closed) return;
     this.actions.add(row.key);
     const key = sessionKey(row.session);
-    if (pending) this.pending.set(key, pending);
+    if (pending) this.changing.set(key, pending);
     cx.notify();
     cx.spawn(async cx => {
       try {
         const result = await performSessionAction(row.session.endpoint, action, row.session, extra, actionIO(cx, this));
-        if (pending) this.pending.set(key, settled(pending, result));
-      } catch (error) { this.pending.delete(key); reportError(error); }
+        if (pending) this.changing.set(key, settled(pending, result));
+      } catch (error) { this.changing.delete(key); reportError(error); }
       finally {
         this.actions.delete(row.key);
         if (!this.closed) { this.refreshSessions(cx); cx.notify(); }
@@ -188,12 +188,12 @@ export default class ProjectTree extends StockSpaces {
     if (key) this.toggle(this.showResolved, key, "projects.resolved", cx);
   }
 
-  // What someone just changed (name, resolved, place in the list) shows at once: `pending` holds a
+  // What someone just changed (name, resolved, place in the list) shows at once: `changing` holds a
   // session's changed fields until the registry says the same, or saving failed.
   withPending(session) {
-    const key = sessionKey(session), pending = this.pending.get(key);
+    const key = sessionKey(session), pending = this.changing.get(key);
     if (!pending) return session;
-    if (Object.keys(pending).every(field => session[field] === pending[field])) { this.pending.delete(key); return session; }
+    if (Object.keys(pending).every(field => session[field] === pending[field])) { this.changing.delete(key); return session; }
     return { ...session, ...pending };
   }
 
@@ -209,8 +209,8 @@ export default class ProjectTree extends StockSpaces {
 
   // Keeps a dropped row's rank: a session's in its registry, an independent terminal's as an hc label.
   reorder(row, rank, cx) {
-    const key = row.session ? sessionKey(row.session) : row.terminal, held = row.session ? this.pending : this.moved;
-    held.set(key, row.session ? { ...this.pending.get(key), rank } : rank);
+    const key = row.session ? sessionKey(row.session) : row.terminal, held = row.session ? this.changing : this.moved;
+    held.set(key, row.session ? { ...this.changing.get(key), rank } : rank);
     cx.notify();
     cx.spawn(async cx => {
       try {
@@ -380,8 +380,8 @@ export default class ProjectTree extends StockSpaces {
     if (change !== this.sessionChange) {
       this.sessionChange = change;
       if (changed?.tabTitle) rememberTabTitle(this.tabTitles, changed.tabTitle);
-      if (changed?.pending) this.pending.set(changed.pending.key, changed.pending.fields);
-      if (changed?.failed) this.pending.delete(changed.failed);
+      if (changed?.pending) this.changing.set(changed.pending.key, changed.pending.fields);
+      if (changed?.failed) this.changing.delete(changed.failed);
     }
     // A tab someone just named may rename its session, so that is looked at straight away too.
     const signature = JSON.stringify([change, all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"]]),
