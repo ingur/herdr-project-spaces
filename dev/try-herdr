@@ -1,0 +1,12 @@
+#!/bin/sh
+# Try the Projects sidebar beside your normal Herdr: the same install.mjs, pointed at a separate
+# Herdr home in this folder's ignored .state/. Only the window's files are separate; both windows
+# show the same hc core, so the same spaces, tabs and terminals.
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd)
+# The app id lets the desktop tell the two windows apart; a scratch home is not telemetry's new install.
+export HERDR_APP_HOME="$repo/.state/herdr-app" HERDR_APP_ID=herdr-project-spaces DO_NOT_TRACK=1
+# Herdr writes its stock files at its first start, and until then the installer says so and adds nothing.
+node "$repo/install.mjs" --home "$HERDR_APP_HOME" ||
+  echo "try-herdr: opening Herdr without the Projects layout. Once the above is settled, run this again; the window may stay open."
+exec herdr-app
