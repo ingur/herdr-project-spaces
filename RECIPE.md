@@ -1,6 +1,6 @@
 # Project Spaces
 
-Herdr's own Spaces list, with what runs in each space listed under it: projects (a coordinating agent session) with their threads, and the space's other agents and shells. A row opens its terminal; a stopped project or thread is started again with its conversation. Projects and threads are not Herdr's: they belong to a separate program (today the Pi extension `pi-projects`) that this mod finds through a label on its terminals and drives through one command. Without such a program the list stays Spaces with fold arrows and terminal rows, and says nothing.
+Herdr's own Spaces list, with what runs in each space listed under it: projects (a coordinating agent session) with their threads, and the space's other agents and shells. A row opens its terminal; a stopped project or thread is started again with its conversation. Projects and threads are not Herdr's: they belong to a separate program (today the Pi extension `herdr-projects`) that this mod finds through a label on its terminals and drives through one command. Without such a program the list stays Spaces with fold arrows and terminal rows, and says nothing.
 
 ## What you see
 

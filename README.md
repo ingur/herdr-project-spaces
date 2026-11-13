@@ -1,6 +1,6 @@
 # herdr-project-spaces
 
-A [herdr](https://herdr.dev) sidebar that shows [pi-projects](https://github.com/ingur/pi-projects) under each space: projects, their threads, agents and shells.
+A [herdr](https://herdr.dev) sidebar that shows [herdr-projects](https://github.com/ingur/herdr-projects) under each space: projects, their threads, agents and shells.
 
 It is a copy of herdr's own Spaces panel. What it changes there:
 
