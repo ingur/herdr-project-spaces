@@ -265,3 +265,14 @@ test("a tab's name names its only pane; a split beside it is named by what runs 
   assert.deepEqual(titles(named(1), panes.slice(0, 1)), ["My thread"]);
   assert.deepEqual(titles(named(2), panes).sort(), ["nvim", "zsh"]);
 });
+
+test("a tab gets its number back when its session leaves and a split stays behind", () => {
+  const live = { id: "x", title: "Thread", projectRoot: "/p", endpoint: { machine: null, stateDir: "/s" }, available: true, terminalOwned: true, terminalState: "live", native: { terminal: "t1" } };
+  const applied = new Map();
+  assert.deepEqual(tabRenames([live], [{ terminal: "t1", tab: "a" }], [{ id: "a", named: false, name: "1", panes: 1 }], applied), [{ id: "a", name: "Thread" }]);
+  const split = [{ id: "a", named: true, name: "Thread", panes: 2 }];
+  assert.deepEqual(tabRenames([live], [{ terminal: "t1", tab: "a" }, { terminal: "t2", tab: "a" }], split, applied), []);
+  const left = [{ id: "a", named: true, name: "Thread", panes: 1 }];
+  assert.deepEqual(tabRenames([], [{ terminal: "t2", tab: "a" }], left, applied), [{ id: "a", name: "" }]);
+  assert.deepEqual(tabRenames([], [{ terminal: "t2", tab: "a" }], left, applied), [], "only once, and never a name someone gave");
+});

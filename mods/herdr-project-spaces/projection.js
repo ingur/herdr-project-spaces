@@ -252,20 +252,28 @@ export const sessionDetail = (row, space) => [row.session.cwd, row.session.resol
   row.live && row.placement.id !== space.id && `in ${row.placement.name}`].filter(Boolean).join(" · ");
 
 // Tab names follow session titles however a session was made or renamed. A name someone gave the tab
-// stays: only an unnamed tab, or one still showing the title last applied here, is renamed.
-// `applied` (session key -> title) is updated in place.
+// stays: only an unnamed tab, or one still showing the title last applied here, is renamed. When the
+// session's terminal leaves a tab that still shows its title (a split stayed behind), the tab gets
+// its number back. `applied` (session key -> title, and "tab:<id>" -> title given) is updated in place.
 export function tabRenames(sessions, panes, tabs, applied) {
-  const renames = [];
+  const renames = [], held = new Set();
   for (const session of sessions.filter(ownsTerminal)) {
     const pane = panes.find(pane => pane.terminal === session.native.terminal);
     const tab = pane && tabs.find(tab => tab.id === pane.tab);
-    if (!tab || tab.panes !== 1) continue;
+    if (!tab) continue;
+    held.add(tab.id);
+    if (tab.panes !== 1) continue;
     const key = sessionKey(session), previous = applied.get(key);
-    if (tab.named && tab.name === session.title) applied.set(key, session.title);
-    else if (!tab.named || tab.name === previous) {
-      applied.set(key, session.title);
-      renames.push({ id: tab.id, name: session.title });
-    }
+    if (!(tab.named && tab.name === session.title) && (tab.named && tab.name !== previous)) continue;
+    if (tab.name !== session.title || !tab.named) renames.push({ id: tab.id, name: session.title });
+    applied.set(key, session.title);
+    applied.set(`tab:${tab.id}`, session.title);
+  }
+  for (const tab of tabs) {
+    const given = applied.get(`tab:${tab.id}`);
+    if (given === undefined || held.has(tab.id)) continue;
+    applied.delete(`tab:${tab.id}`);
+    if (tab.named && tab.name === given) renames.push({ id: tab.id, name: "" });
   }
   return renames;
 }
