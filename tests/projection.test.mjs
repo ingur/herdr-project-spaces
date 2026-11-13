@@ -256,3 +256,12 @@ test("tab names follow session titles but never replace a name someone gave the 
   assert.deepEqual(tabRenames([live("x", "Renamed", "t1")], panes, tabs, applied), [{ id: "a", name: "Renamed" }]);
   assert.deepEqual(tabRenames([{ ...live("x", "Stopped", "t1"), terminalState: "finished" }], panes, tabs, applied), []);
 });
+
+test("a tab's name names its only pane; a split beside it is named by what runs there", () => {
+  const named = (panes) => [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "My thread", named: true, panes }] }];
+  const panes = [{ pane: "p1", terminal: "t1", tab: "tab", title: "t1" }, { pane: "p2", terminal: "t2", tab: "tab", title: "t2" }];
+  const terminals = [{ address: "t1", argv: ["/bin/zsh"] }, { address: "t2", argv: ["/usr/bin/nvim"] }];
+  const titles = (spaces, shown) => projectSpaces({ spaces, panes: shown, agents: [], sessions: [], terminals })[0].entries.map(entry => entry.title);
+  assert.deepEqual(titles(named(1), panes.slice(0, 1)), ["My thread"]);
+  assert.deepEqual(titles(named(2), panes).sort(), ["nvim", "zsh"]);
+});

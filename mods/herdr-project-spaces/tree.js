@@ -3,7 +3,7 @@ import { Button, h_flex, v_flex } from "gpui-base";
 import { agents, exec, hc, machines, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, theme, updates } from "herdr";
 import StockSpaces, { STOCK_VERSION } from "./stock-spaces.js";
 import { SessionBackends, authorizeEndpoint, errorText, unqualify } from "./backends.js";
-import { UNPLACED, displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, spaceDrop, spaceItems, spaceKey, spaceRows, stepRow, tabRenames, urgentStatus } from "./projection.js";
+import { UNPLACED, displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceKey, spaceRows, stepRow, tabRenames, urgentStatus } from "./projection.js";
 import { performSessionAction } from "./actions.js";
 
 export const MOD = "herdr-project-spaces";
@@ -67,6 +67,7 @@ export default class ProjectTree extends StockSpaces {
     this.order = [];
     this.drawn = [];
     this.tabTitles = new Map();
+    this.moved = new Map();
     // The Spaces this extends is one Herdr release's copy: say so once for each other release it runs in.
     // Read leniently: this is the one line meant for a Herdr it was not written against.
     const app = updates()?.app?.version;
@@ -167,15 +168,31 @@ export default class ProjectTree extends StockSpaces {
     if (key) this.toggle(this.showResolved, key, "projects.resolved", cx);
   }
 
+  // A moved row shows in its new place at once; `moved` holds its rank until the registry or the
+  // terminal's label says the same, or saving it failed.
+  ranked(items, key, rank, withRank) {
+    return items.map(item => {
+      const moved = this.moved.get(key(item));
+      if (moved === undefined) return item;
+      if (rank(item) === moved) { this.moved.delete(key(item)); return item; }
+      return withRank(item, moved);
+    });
+  }
+
   // Keeps a dropped row's rank: a session's in its registry, an independent terminal's as an hc label.
   reorder(row, rank, cx) {
-    if (row.session) { this.action("order", row, cx, { rank }); return; }
+    const key = row.session ? sessionKey(row.session) : row.terminal;
+    this.moved.set(key, rank);
+    cx.notify();
     cx.spawn(async cx => {
       try {
-        const result = await hc(["label", row.terminal, "--json", `projects.rank=${rank}`]);
-        if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "hc did not label the terminal.");
-      } catch (error) { reportError(error); }
-      if (!this.closed) cx.notify();
+        if (row.session) await performSessionAction(row.session.endpoint, "order", row.session, { rank }, actionIO(cx, this));
+        else {
+          const result = await hc(["label", row.terminal, "--json", `projects.rank=${rank}`]);
+          if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "hc did not label the terminal.");
+        }
+      } catch (error) { this.moved.delete(key); reportError(error); }
+      if (!this.closed) { if (row.session) this.refreshSessions(cx, false); cx.notify(); }
     });
   }
 
@@ -339,7 +356,8 @@ export default class ProjectTree extends StockSpaces {
     }
     // This computer's spaces are all read: until then every one of them looks gone.
     const local = machines().find(machine => machine.name === null)?.layout;
-    const rows = projectSpaces({ spaces: spaces(), panes: panes(), agents: agents(), sessions: this.backends.sessions(), terminals: all,
+    const rows = projectSpaces({ spaces: spaces(), panes: panes(), agents: agents(), sessions: this.ranked(this.backends.sessions(), sessionKey, s => s.rank, (s, rank) => ({ ...s, rank })),
+      terminals: this.ranked(all, t => t.address, t => Number(t.labels?.["projects.rank"]), (t, rank) => ({ ...t, labels: { ...t.labels, "projects.rank": String(rank) } })),
       showResolved: this.showResolved, ready: !local || local === "ready" });
     this.projection = new Map(rows.map(row => [row.key, row]));
     this.selected = selectedKey(rows, this.projectFolds);

@@ -92,12 +92,13 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
     if (!target) return;
     if (terminal) seen.add(terminal);
     const program = agent?.program ?? pane?.program;
-    // A shell that sets no title is named by what runs in it, like a terminal's own tab, never by its
+    // A tab's name is its only pane's name; a split beside a session is its own terminal. A shell that
+    // sets no title is named by what runs in it, like a terminal's own tab, never by its
     // address (Herdr reports the address as the title when the program set none).
     const record = byAddress.get(terminal), named = title => (title && title !== terminal ? title : undefined);
     const running = (record?.foreground?.argv ?? record?.argv)?.[0]?.split("/").pop();
     target.entries.push({ key: terminal || `pane:${pane.pane}`, rank: terminalRank(record), terminal, pane: pane?.pane, tab: location?.tab.id ?? agent?.tab,
-      title: (location?.tab.named && location.tab.name) || named(agent?.title) || named(pane?.title) || program?.name || running || location?.tab.name || terminal,
+      title: (location?.tab.named && location.tab.panes === 1 && location.tab.name) || named(agent?.title) || named(pane?.title) || program?.name || running || location?.tab.name || terminal,
       agent: !!agent || !!program?.agent, program, cwd: pane?.cwd, status: agent?.status ?? pane?.status, focused: !!(agent?.focused || pane?.focused) });
   }
   for (const pane of panes) independent(pane, byAgent.get(pane.terminal));
