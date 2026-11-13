@@ -15,6 +15,8 @@ export const backendStorage = {
 };
 // An overlay (its own copy of the mod) sets this after acting on a session: the tree refreshes at once.
 export const CHANGED = `${MOD}.changed`;
+// What an action really saved, for the fields it was shown changing.
+export const settled = (pending, result) => Object.fromEntries(Object.keys(pending).map(field => [field, result?.[field] ?? pending[field]]));
 // Herdr ships no bin icon, so that one is ours.
 export const icon = (name, size = 13) => svg(name === "trash" ? `mods/${MOD}/trash.svg` : `mods/workspace-chrome/${name}.svg`).size(size).flex_none();
 // Herdr's own program icon, drawn as the Agents mod draws it; a terminal where the row has none.
@@ -77,6 +79,7 @@ export default class ProjectTree extends StockSpaces {
     this.drawn = [];
     this.tabTitles = new Map();
     this.moved = new Map();
+    this.pending = new Map();
     // The Spaces this extends is one Herdr release's copy: say so once for each other release it runs in.
     // Read leniently: this is the one line meant for a Herdr it was not written against.
     const app = updates()?.app?.version;
@@ -125,7 +128,7 @@ export default class ProjectTree extends StockSpaces {
         this.refreshingSessions = false;
         if (!this.closed) {
           if (!this.actions.size) for (const rename of tabRenames(this.backends.sessions(), panes(), spaces().flatMap(space => space.tabs ?? []), this.tabTitles)) {
-            if (rename.session) this.action("rename", { key: sessionKey(rename.session), session: rename.session }, cx, { title: rename.title, by: "human" });
+            if (rename.session) this.action("rename", { key: sessionKey(rename.session), session: rename.session }, cx, { title: rename.title, by: "human" }, { title: rename.title });
             else run("tab.rename", rename);
           }
           if (previous !== JSON.stringify([this.backends.sessions(), this.backends.errors])) cx.notify();
@@ -141,13 +144,18 @@ export default class ProjectTree extends StockSpaces {
     cx.notify();
   }
 
-  action(action, row, cx, extra = {}) {
+  // `pending` (the fields this action changes) shows on the row at once; see shown().
+  action(action, row, cx, extra = {}, pending) {
     if (this.actions.has(row.key) || this.closed) return;
     this.actions.add(row.key);
+    const key = sessionKey(row.session);
+    if (pending) this.pending.set(key, pending);
     cx.notify();
     cx.spawn(async cx => {
-      try { await performSessionAction(row.session.endpoint, action, row.session, extra, actionIO(cx, this)); }
-      catch (error) { reportError(error); }
+      try {
+        const result = await performSessionAction(row.session.endpoint, action, row.session, extra, actionIO(cx, this));
+        if (pending) this.pending.set(key, settled(pending, result));
+      } catch (error) { this.pending.delete(key); reportError(error); }
       finally {
         this.actions.delete(row.key);
         if (!this.closed) { this.refreshSessions(cx); cx.notify(); }
@@ -180,8 +188,16 @@ export default class ProjectTree extends StockSpaces {
     if (key) this.toggle(this.showResolved, key, "projects.resolved", cx);
   }
 
-  // A moved row shows in its new place at once; `moved` holds its rank until the registry or the
-  // terminal's label says the same, or saving it failed.
+  // What someone just changed (name, resolved, place in the list) shows at once: `pending` holds a
+  // session's changed fields until the registry says the same, or saving failed.
+  shown(session) {
+    const key = sessionKey(session), pending = this.pending.get(key);
+    if (!pending) return session;
+    if (Object.keys(pending).every(field => session[field] === pending[field])) { this.pending.delete(key); return session; }
+    return { ...session, ...pending };
+  }
+
+  // The same for a terminal that is no session: `moved` holds its rank until its label says so.
   ranked(items, key, rank, withRank) {
     return items.map(item => {
       const moved = this.moved.get(key(item));
@@ -193,8 +209,8 @@ export default class ProjectTree extends StockSpaces {
 
   // Keeps a dropped row's rank: a session's in its registry, an independent terminal's as an hc label.
   reorder(row, rank, cx) {
-    const key = row.session ? sessionKey(row.session) : row.terminal;
-    this.moved.set(key, rank);
+    const key = row.session ? sessionKey(row.session) : row.terminal, held = row.session ? this.pending : this.moved;
+    held.set(key, row.session ? { ...this.pending.get(key), rank } : rank);
     cx.notify();
     cx.spawn(async cx => {
       try {
@@ -203,7 +219,7 @@ export default class ProjectTree extends StockSpaces {
           const result = await hc(["label", row.terminal, "--json", `projects.rank=${rank}`]);
           if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "hc did not label the terminal.");
         }
-      } catch (error) { this.moved.delete(key); reportError(error); }
+      } catch (error) { held.delete(key); reportError(error); }
       if (!this.closed) { if (row.session) this.refreshSessions(cx, false); cx.notify(); }
     });
   }
@@ -364,15 +380,19 @@ export default class ProjectTree extends StockSpaces {
     if (change !== this.sessionChange) {
       this.sessionChange = change;
       if (changed?.tabTitle) rememberTabTitle(this.tabTitles, changed.tabTitle);
+      if (changed?.pending) this.pending.set(changed.pending.key, changed.pending.fields);
+      if (changed?.failed) this.pending.delete(changed.failed);
     }
-    const signature = JSON.stringify([change, all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"]])]);
+    // A tab someone just named may rename its session, so that is looked at straight away too.
+    const signature = JSON.stringify([change, all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"]]),
+      spaces().flatMap(space => (space.tabs ?? []).map(tab => tab.named && [tab.id, tab.name]))]);
     if (signature !== this.terminalSignature) {
       this.terminalSignature = signature;
       this.refreshSessions(cx);
     }
     // This computer's spaces are all read: until then every one of them looks gone.
     const local = machines().find(machine => machine.name === null)?.layout;
-    const rows = projectSpaces({ spaces: spaces(), panes: panes(), agents: agents(), sessions: this.ranked(this.backends.sessions(), sessionKey, s => s.rank, (s, rank) => ({ ...s, rank })),
+    const rows = projectSpaces({ spaces: spaces(), panes: panes(), agents: agents(), sessions: this.backends.sessions().map(session => this.shown(session)),
       terminals: this.ranked(all, t => t.address, t => Number(t.labels?.["projects.rank"]), (t, rank) => ({ ...t, labels: { ...t.labels, "projects.rank": String(rank) } })),
       showResolved: this.showResolved, ready: !local || local === "ready" });
     this.projection = new Map(rows.map(row => [row.key, row]));

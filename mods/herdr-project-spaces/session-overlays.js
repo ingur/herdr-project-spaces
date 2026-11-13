@@ -3,13 +3,23 @@ import { Button, Input, InputState, h_flex, v_flex } from "gpui-base";
 import { closeOverlay, notify, setShared, theme } from "herdr";
 import { currentSession, errorText, savedSessions } from "./backends.js";
 import { deletion, performSessionAction, sessionMenu } from "./actions.js";
-import { actionIO, backendStorage, CHANGED, icon, openDialog, reportError } from "./tree.js";
+import { sessionKey } from "./projection.js";
+import { actionIO, backendStorage, CHANGED, icon, openDialog, reportError, settled } from "./tree.js";
 
-// An overlay is its own copy of the mod: once it acted, shared state has the tree refresh at once
-// rather than at its next poll. A failed action may have changed the session too.
+const PENDING = { rename: extra => ({ title: extra.title }), resolve: () => ({ resolved: true }) };
+
+// An overlay is its own copy of the mod: shared state tells the tree what is changing, so the row
+// shows it at once, and has it refresh when the action is done rather than at its next poll.
+// A failed action may have changed the session too.
 async function act(owner, session, action, extra, cx) {
-  try { return await performSessionAction(session.endpoint, action, session, extra, actionIO(cx, owner)); }
-  finally { setShared(CHANGED, { at: Date.now(), tabTitle: owner.tabTitle }); }
+  const key = sessionKey(session), pending = PENDING[action]?.(extra);
+  if (pending) setShared(CHANGED, { at: Date.now(), pending: { key, fields: pending } });
+  let done = pending && { failed: key };
+  try {
+    const result = await performSessionAction(session.endpoint, action, session, extra, actionIO(cx, owner));
+    if (pending) done = { pending: { key, fields: settled(pending, result) } };
+    return result;
+  } finally { setShared(CHANGED, { at: Date.now(), tabTitle: owner.tabTitle, ...done }); }
 }
 
 export class SessionMenu {
