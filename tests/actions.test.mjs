@@ -1,0 +1,124 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { performSessionAction } from "../mods/herdr-project-spaces/actions.js";
+
+const endpoint = { version: 1, command: ["/runtime", "/control"], stateDir: "/state", machine: "buildbox" };
+const record = { id: "project", coordinator: "project", role: "coordinator", title: "Project", projectRoot: "/project", cwd: "/project", space: "s1", tab: "tab1", terminal: "t1", terminalOwned: true, terminalState: "live", readyToFocus: true, resolved: false, rank: 1 };
+const child = { ...record, id: "thread", coordinator: "project", role: "thread", title: "New thread", terminal: "t2", tab: "tab2" };
+const pane = { pane: "buildbox/p2", terminal: "buildbox/t2", tab: "buildbox/tab2" };
+function harness(respond, visible = [pane]) {
+  const calls = [], commands = [];
+  return { calls, commands, io: {
+    authorize: () => {},
+    exec: async (command, args, options) => {
+      const action = args[1], input = JSON.parse(args[2]);
+      calls.push({ command, action, input, options });
+      return { code: 0, stdout: JSON.stringify(await respond(action, input)), stderr: "" };
+    },
+    panes: () => visible,
+    tabs: () => [{ id: pane.tab, named: true, name: "Human tab name" }],
+    run: (name, args) => commands.push([name, args]),
+    pause: async () => {},
+  } };
+}
+
+test("project plus creates an unnamed child then verifies and focuses its exact native pane", async () => {
+  const { io, calls, commands } = harness(() => child);
+  await performSessionAction(endpoint, "create-thread", record, {}, io);
+  assert.deepEqual(calls.map(call => call.action), ["create-thread", "show"]);
+  assert.deepEqual(calls[0].input, { projectRoot: "/project", id: "project", stateDir: "/state" });
+  assert.deepEqual(calls[1].input, { projectRoot: "/project", id: "thread", stateDir: "/state" });
+  assert.ok(calls.every(call => call.options.on === "buildbox"));
+  assert.deepEqual(commands, [["tab.rename", { id: "buildbox/tab2", name: "New thread" }], ["tab.select", { id: "buildbox/tab2" }], ["pane.focus", { pane: "buildbox/p2" }]]);
+});
+
+test("opening a resolved thread preserves archive state and manually chosen tab names", async () => {
+  const { io, calls, commands } = harness(() => ({ ...child, resolved: true }));
+  const result = await performSessionAction(endpoint, "show", { ...child, resolved: true }, {}, io);
+  assert.equal(result.resolved, true);
+  assert.deepEqual(calls.map(call => call.action), ["show"]);
+  assert.deepEqual(commands.map(command => command[0]), ["tab.select", "pane.focus"]);
+});
+
+test("resolve and close do not focus, reopen or kill unrelated native panes", async () => {
+  for (const action of ["resolve", "close"]) {
+    const { io, calls, commands } = harness(() => ({ ...child, resolved: true }));
+    await performSessionAction(endpoint, action, child, {}, io);
+    assert.deepEqual(calls.map(call => call.action), [action]);
+    assert.equal(calls[0].input.id, "thread");
+    assert.deepEqual(commands, []);
+  }
+});
+
+test("rename updates only a verified current terminal's tab", async () => {
+  const { io, calls, commands } = harness(() => ({ ...child, title: "New name" }));
+  await performSessionAction(endpoint, "rename", child, { title: "New name" }, io);
+  assert.equal(calls[0].input.title, "New name");
+  assert.deepEqual(commands, [["tab.rename", { id: "buildbox/tab2", name: "New name" }]]);
+  const stopped = harness(() => ({ ...child, title: "Saved", terminalOwned: false }));
+  await performSessionAction(endpoint, "rename", child, { title: "Saved" }, stopped.io);
+  assert.deepEqual(stopped.commands, []);
+});
+
+test("uncertain or mismatched identity never drives native focus", async () => {
+  for (const response of [{ ...child, readyToFocus: false }, { ...child, terminalOwned: false }, { ...child, terminalState: "finished" }, { ...child, id: "unrelated" }]) {
+    const { io, commands } = harness(() => response);
+    await assert.rejects(performSessionAction(endpoint, "show", child, {}, io));
+    assert.deepEqual(commands, []);
+  }
+  const absent = harness(() => child, []);
+  await assert.rejects(performSessionAction(endpoint, "show", child, {}, absent.io), /native pane is not available/);
+  assert.deepEqual(absent.commands, []);
+});
+
+test("every command is authorized first; a refused route runs nothing", async () => {
+  const { io, calls } = harness(() => child);
+  const asked = [];
+  io.authorize = route => asked.push(route);
+  await performSessionAction(endpoint, "create-thread", record, {}, io);
+  assert.deepEqual([asked, calls.map(call => call.action)], [[endpoint, endpoint], ["create-thread", "show"]]);
+  calls.length = 0;
+  io.authorize = () => { throw new Error("This session's control command changed"); };
+  await assert.rejects(performSessionAction(endpoint, "rename", child, { title: "Late rename" }, io), /command changed/);
+  assert.deepEqual(calls, []);
+});
+
+test("a created thread remains a success when its first focus is not ready", async () => {
+  const { io, calls, commands } = harness(action => {
+    if (action === "show") throw new Error("Still starting");
+    return child;
+  });
+  const result = await performSessionAction(endpoint, "create-thread", record, {}, io);
+  assert.equal(result.id, child.id);
+  assert.match(result.focusError, /Still starting/);
+  assert.deepEqual(calls.map(call => call.action), ["create-thread", "show"]);
+  assert.deepEqual(commands, []);
+});
+
+test("delete goes through control alone; a deletion control did not confirm is an error, and so is control's own", async () => {
+  const { io, calls, commands } = harness(() => ({ deleted: ["thread", "project"] }));
+  assert.deepEqual(await performSessionAction(endpoint, "delete", record, {}, io), { deleted: ["thread", "project"] });
+  assert.deepEqual(calls.map(call => [call.action, call.input]), [["delete", { projectRoot: "/project", id: "project", stateDir: "/state" }]]);
+  assert.deepEqual(commands, []);
+  for (const response of [{ deleted: [] }, { deleted: ["thread"] }, record]) {
+    const unconfirmed = harness(() => response);
+    await assert.rejects(performSessionAction(endpoint, "delete", record, {}, unconfirmed.io), /did not confirm/);
+  }
+  const failed = harness(() => record);
+  failed.io.exec = async () => ({ code: 1, stdout: "", stderr: "projects: a writer is still live; already deleted: thread\n" });
+  await assert.rejects(performSessionAction(endpoint, "delete", record, {}, failed.io), /already deleted: thread/);
+});
+
+test("show and place hand their space to control, which alone places; a show with nowhere to open asks nothing of it", async () => {
+  const shown = harness(() => child);
+  await performSessionAction(endpoint, "show", child, { space: "s2" }, shown.io);
+  assert.deepEqual(shown.calls.map(call => [call.action, call.input]), [["show", { space: "s2", projectRoot: "/project", id: "thread", stateDir: "/state" }]]);
+  assert.deepEqual(shown.commands.map(command => command[0]), ["tab.select", "pane.focus"], "no space is made and no tab closed");
+  const placed = harness(() => ({ ...record, space: "s2" }));
+  await performSessionAction(endpoint, "place", record, { space: "s2" }, placed.io);
+  assert.deepEqual(placed.calls.map(call => [call.action, call.input]), [["place", { space: "s2", projectRoot: "/project", id: "project", stateDir: "/state" }]]);
+  assert.deepEqual(placed.commands, []);
+  const nowhere = harness(() => child);
+  await assert.rejects(performSessionAction(endpoint, "show", child, { space: null }, nowhere.io), /Select a space/);
+  assert.deepEqual([nowhere.calls, nowhere.commands], [[], []]);
+});
