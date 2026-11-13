@@ -9,8 +9,7 @@ export const sessionMenu = session => [
   { title: "Open terminal", action: "show", icon: "terminal" },
   ...(session.available !== false && session.terminalOwned && session.terminalState === "live" ? [{ title: "Close terminal", action: "close", icon: "x" }] : []),
   ...(!session.resolved ? [{ title: `Resolve ${kind(session)}`, action: "resolve", icon: "check" }] : []),
-  // Herdr ships no bin: `x` is its glyph for what ends something and is Close's here, so the plain minus.
-  { title: `Delete ${kind(session)}…`, action: "delete", icon: "minus" },
+  { title: `Delete ${kind(session)}`, action: "delete", icon: "trash" },
 ];
 
 // What the delete dialog says goes with `session`. `records` are its backend's sessions: every
@@ -19,8 +18,9 @@ export function deletion(session, records) {
   const threads = records.filter(record => record.role === "thread" && record.projectRoot === session.projectRoot && record.coordinator === session.id).length;
   return {
     title: `Delete ${kind(session)}?`,
-    detail: `Deletes “${session.title}”${threads ? `, its ${threads} thread${threads > 1 ? "s" : ""} and their conversations` : " and its conversation"}.`,
-    kept: "Repository files are not touched.",
+    // As stock's "Close space?": the name, then what goes with it.
+    detail: `${session.title} — ${threads ? `${threads} thread${threads > 1 ? "s" : ""} and all conversations` : "its conversation and messages"}`,
+    kept: "Files in your repository stay.",
   };
 }
 

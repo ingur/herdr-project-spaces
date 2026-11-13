@@ -15,7 +15,8 @@ export const backendStorage = {
 };
 // An overlay (its own copy of the mod) sets this after acting on a session: the tree refreshes at once.
 export const CHANGED = `${MOD}.changed`;
-export const icon = (name, size = 13) => svg(`mods/workspace-chrome/${name}.svg`).size(size).flex_none();
+// Herdr ships no bin icon, so that one is ours.
+export const icon = (name, size = 13) => svg(name === "trash" ? `mods/${MOD}/trash.svg` : `mods/workspace-chrome/${name}.svg`).size(size).flex_none();
 // Herdr's own program icon, drawn as the Agents mod draws it; a terminal where the row has none.
 const programIcon = program => program?.icon ? (program.tint ? svg(program.icon) : image(program.icon)).size(13).flex_none() : icon("terminal");
 export const actionIO = (cx, owner) => ({

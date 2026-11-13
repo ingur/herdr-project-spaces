@@ -170,8 +170,9 @@ export class DeleteSession {
         cx.stop_propagation();
       })
       .child(heading(t, title))
-      .child(v_flex().id("delete-detail").flex_1().min_h(0).gap(4).overflow_y_scrollbar().text_color(t.muted)
-        .child(div().child(detail)).child(div().child(kept))
+      // Not flex_1: the dialog fits its content, and a growing child with no minimum collapses to nothing.
+      .child(v_flex().gap(4).text_color(t.muted)
+        .child(div().child(detail)).child(div().text_color(t.dim).child(kept))
         .when(!!this.error, el => el.child(div().text_color(t.blocked).child(this.error))))
       .child(buttons(t, this, this.busy ? "Deleting…" : "Delete").text_size(12));
   }
