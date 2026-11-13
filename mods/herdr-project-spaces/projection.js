@@ -27,6 +27,7 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   const byAgent = new Map(agents.map(agent => [agent.address, agent]));
   const byAddress = new Map(terminals.map(terminal => [terminal.address, terminal]));
   const registered = new Map(sessions.map(session => [sessionKey(session), session]));
+  const starting = new Set(sessions.map(session => session.id));
   const owned = new Set(sessions.filter(ownsTerminal).map(session => session.native.terminal).filter(Boolean));
 
   function placement(session) {
@@ -87,6 +88,9 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   function independent(pane, agent) {
     const terminal = agent?.address ?? pane?.terminal;
     if (terminal && seen.has(terminal)) return;
+    // A terminal just started for a session is that session's, not a shell of its own for the
+    // moment before the session registers in it.
+    if (starting.has(byAddress.get(terminal)?.labels?.["projects.session"])) return;
     const location = byTab.get(pane?.tab ?? agent?.tab);
     const target = location?.row ?? bySpace.get(agent?.space);
     if (!target) return;

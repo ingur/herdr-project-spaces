@@ -334,3 +334,12 @@ test("a tab already showing the title after a reload is synced, so renaming it r
   const renames = tabRenames([live], panes, [{ id: "a", named: true, name: "API docs", panes: 1 }], applied);
   assert.deepEqual(renames.map(rename => [rename.session?.id, rename.title]), [["x", "API docs"]]);
 });
+
+test("a terminal started for a session is never listed as a shell of its own while it registers", () => {
+  const spaces = [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "1", named: false, panes: 1 }] }];
+  const stopped = { id: "x", coordinator: "x", role: "coordinator", title: "Project", projectRoot: "/p", endpoint: { machine: null, stateDir: "/s" }, available: true, terminalOwned: false, terminalState: "finished", native: { space: "one" } };
+  const row = projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents: [], sessions: [stopped],
+    terminals: [{ address: "t9", argv: ["pi"], labels: { "projects.session": "x" } }] })[0];
+  assert.deepEqual(row.entries, []);
+  assert.equal(row.groups.length, 1);
+});
