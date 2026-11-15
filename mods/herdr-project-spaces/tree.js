@@ -57,13 +57,15 @@ export function smallButton(id, glyph, title, action, selected = false) {
 // The place of a hover control while it is hidden: nothing in the row moves when it shows.
 const slot = () => div().size(20).flex_none();
 
-// The Agents panel's status mark for the most urgent of `rows` (a spinner while working, a dot
-// when done or blocked, nothing when idle), then a small dim count of the rows a fold hides.
+// The Agents panel's status mark for the most urgent of `rows` (a spinner while working, a ! when
+// blocked, a dot when done, nothing when idle), then a small dim count of the rows a fold hides.
 // Spinner and dot share a centre, so the mark keeps its place when the status changes.
 function marks(rows, hidden, t) {
   const status = urgentStatus(rows);
   return [
-    ...(status === "working" ? [icon("spinner", 12).mx(1).text_color(t.working).spin(900)] : status ? [div().size(7).mx(3).flex_none().rounded(4).bg(t[status])] : []),
+    ...(status === "working" ? [icon("spinner", 12).mx(1).text_color(t.working).spin(900)]
+      : status === "blocked" ? [div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!")]
+      : status ? [div().size(7).mx(3).flex_none().rounded(4).bg(t[status])] : []),
     ...(hidden ? [div().flex_none().text_size(11).text_color(t.dim).child(String(hidden))] : []),
   ];
 }
