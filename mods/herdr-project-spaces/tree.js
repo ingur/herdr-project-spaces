@@ -58,11 +58,12 @@ export function smallButton(id, glyph, title, action, selected = false) {
 const slot = () => div().size(20).flex_none();
 
 // Stock's compact status for the most urgent of `rows` (a spinner while working, a dot when done
-// or blocked, nothing when idle), then a small dim count of the rows a fold hides.
+// or blocked, nothing when idle), then a small dim count of the rows a fold hides. The dot takes
+// the spinner's 12 px, so the mark keeps its place when the status changes.
 function marks(rows, hidden, t) {
   const status = urgentStatus(rows);
   return [
-    ...(status === "working" ? [icon("spinner", 12).text_color(t.working).spin(900)] : status ? [div().size(6).flex_none().rounded(3).bg(t[status])] : []),
+    ...(status === "working" ? [icon("spinner", 12).text_color(t.working).spin(900)] : status ? [div().size(6).mx(3).flex_none().rounded(3).bg(t[status])] : []),
     ...(hidden ? [div().flex_none().text_size(11).text_color(t.dim).child(String(hidden))] : []),
   ];
 }
