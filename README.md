@@ -58,7 +58,8 @@ To remove: point your Spaces panel back at `spaces` and delete `mods/herdr-proje
 
 ## Good to know
 
-- Based on herdr 0.1.15's Spaces panel. After a herdr update it may need a refresh; it tells you when the versions differ.
+- Based on herdr 0.1.16's Spaces panel. After a herdr update it may need a refresh; it tells you when the versions differ.
+- Runs the command named by a terminal's `projects.control` label, on that terminal's machine.
 - Cannot be combined with another mod that replaces Spaces.
 
 ## Develop

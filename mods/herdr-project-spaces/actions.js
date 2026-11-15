@@ -63,7 +63,7 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
   if (!["open", "create-thread"].includes(action)) return result;
   const created = action === "create-thread" ? result : null;
   try {
-    if (created) result = checkedResult(await invoke(endpoint, "open", { id: result.id }, execute), result);
+    if (created && !hasTerminal(result)) result = checkedResult(await invoke(endpoint, "open", { id: result.id }, execute), result);
     if (!hasTerminal(result)) throw new Error(result.error || "Session is not ready to focus; no terminal was guessed or replaced.");
     const terminal = qualify(endpoint.machine, result.terminal);
     // Native reconciliation adopts hc's placement labels; do not create a second tab or shell.

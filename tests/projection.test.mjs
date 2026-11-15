@@ -52,14 +52,15 @@ test("resolved visibility is per project, without reopening or leaking an owned 
   assert.deepEqual(sessions, before);
 });
 
-test("only freshly verified ownership hides or follows a terminal", () => {
+test("only freshly verified ownership follows a terminal; an unreachable machine's record never hides one", () => {
   const panes = [{ pane: "shell", terminal: "t2", tab: "tab-two", title: "normal shell" }];
+  // `{}`: a session shown stopped while it closes, its terminal not yet gone.
   for (const extra of [{}, { ...live, available: false }]) {
     const sessions = [session("c", "c", { terminal: "t2", tab: "tab-one", ...extra })];
     const rows = projectSpaces({ ...world, sessions, panes });
     assert.equal(rows[0].groups[0].coordinator.placement.id, "one");
     assert.equal(rows[0].groups[0].coordinator.live, false);
-    assert.equal(rows[1].entries[0].terminal, "t2");
+    assert.deepEqual(rows[1].entries.map(entry => entry.terminal), extra.available === false ? ["t2"] : []);
   }
 });
 

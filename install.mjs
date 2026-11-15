@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,7 +10,7 @@ const LAYOUT = "Projects";
 const HELP = `Usage: node install.mjs [--home <Herdr home>]
 
 Adds the Projects sidebar to a Herdr home, by files alone:
-  mods/${NAME}/   the mod; only files that differ are replaced
+  mods/${NAME}/   the mod; only files that differ are replaced, and files it dropped removed
   layouts/${LAYOUT}.json        made once from your main layout, with its sizes and theme,
                                its Spaces block showing the mod; your later edits are kept
   keys.json                    section "layout:${LAYOUT}": only keys you have not bound or moved
@@ -94,11 +94,13 @@ export async function install(home, platform = process.platform) {
   const wanted = JSON.parse(await readFile(join(source, platform === "darwin" ? "keys.macos.json" : "keys.json"), "utf8"));
   const keys = parsed(keysPath, keysText, text => mergeKeys(text, wanted));
 
-  const mod = [];
-  await mkdir(join(home, "mods", NAME), { recursive: true });
-  for (const name of await readdir(join(source, "mods", NAME))) {
-    if (await updateFile(join(home, "mods", NAME, name), await readFile(join(source, "mods", NAME, name)))) mod.push(name);
+  const mod = [], files = await readdir(join(source, "mods", NAME)), installed = join(home, "mods", NAME);
+  await mkdir(installed, { recursive: true });
+  for (const name of files) {
+    if (await updateFile(join(installed, name), await readFile(join(source, "mods", NAME, name)))) mod.push(name);
   }
+  // What Herdr writes into a mod (typings, jsconfig.json, hidden files) is no file of ours (its AGENTS.md).
+  for (const name of await readdir(installed)) if (!files.includes(name) && !/^\.|\.d\.ts$|^jsconfig\.json$|^node_modules$/.test(name)) { await rm(join(installed, name)); mod.push(`${name} (removed)`); }
   await updateFile(join(layouts, `${LAYOUT}.svg`), await readFile(join(source, "layout-preview.svg")));
   if (existing === null) {
     // As Herdr's own layout.clone: the clicks on main (sizes, what is hidden, the theme pick) come along.

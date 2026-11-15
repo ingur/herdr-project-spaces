@@ -144,7 +144,8 @@ export default class ProjectTree extends StockSpaces {
     cx.notify();
   }
 
-  // `changing` (the fields this action changes) shows on the row at once; see withPending().
+  // `changing` (the fields this action changes) shows on the row at once; see withPending(). A start's
+  // `starting` ends with the start: the session moves on by itself, and the list says how far.
   action(action, row, cx, extra = {}, pending) {
     if (this.actions.has(row.key) || this.closed) return;
     this.actions.add(row.key);
@@ -154,7 +155,8 @@ export default class ProjectTree extends StockSpaces {
     cx.spawn(async cx => {
       try {
         const result = await performSessionAction(row.session.endpoint, action, row.session, extra, actionIO(cx, this));
-        if (pending) this.changing.set(key, settled(pending, result));
+        if (action === "open") this.changing.delete(key);
+        else if (pending) this.changing.set(key, settled(pending, result));
       } catch (error) { this.changing.delete(key); reportError(error); }
       finally {
         this.actions.delete(row.key);
@@ -188,8 +190,8 @@ export default class ProjectTree extends StockSpaces {
     if (key) this.toggle(this.showResolved, key, "projects.resolved", cx);
   }
 
-  // What someone just changed (name, resolved, place in the list) shows at once: `changing` holds a
-  // session's changed fields until the registry says the same, or saving failed.
+  // What someone just changed (name, resolved, place in the list, started, closed, deleted) shows at
+  // once: `changing` holds a session's changed fields until the registry says the same, or saving failed.
   withPending(session) {
     const key = sessionKey(session), pending = this.changing.get(key);
     if (!pending) return session;
@@ -254,9 +256,9 @@ export default class ProjectTree extends StockSpaces {
     cx.notify();
   }
 
-  // A row's click, and what the next/prev keys do.
+  // A row's click, and what the next/prev keys do: control only starts a stopped session; a running one is focused as an agent or shell row.
   open(row, cx) {
-    if (row.session) this.action("open", row, cx, openSpace(this.drawn, row.key));
+    if (row.session && !row.live) this.action("open", row, cx, openSpace(this.drawn, row.key), { state: "starting" });
     else if (row.agent) run("agent.focus", { terminal: row.terminal });
     else { if (row.tab) run("tab.select", { id: row.tab }); if (row.pane) run("pane.focus", { pane: row.pane }); }
   }
@@ -264,7 +266,6 @@ export default class ProjectTree extends StockSpaces {
   // One visible row down (1) or up (-1) from the row last stepped to, which is the focused one
   // unless its open failed: a row that cannot open must not trap the keys.
   step(direction, cx) {
-    if (this.actions.has(this.cursor)) return; // That row is still opening.
     const row = stepRow(this.order, this.cursor, direction);
     // No other row shows (the rail, everything folded): stock's own space order.
     if (!row) { run(direction > 0 ? "space.next" : "space.prev"); return; }
@@ -341,7 +342,7 @@ export default class ProjectTree extends StockSpaces {
       hovered ? smallButton(`thread-${row.key}`, "plus", `New thread in ${session.title}`, cx => this.newThread(row, cx)) : slot(),
     ] : [];
     return this.draggable(h_flex().id(`session-${row.key}`).h(28).flex_none().pl(project ? 26 : 73).pr(8).gap(7).items_center().rounded(7)
-      .text_size(12.8).text_color(session.resolved || !row.live ? t.dim : t.foreground)
+      .text_size(12.8).text_color(session.resolved || !row.live && session.state !== "starting" ? t.dim : t.foreground)
       .when(selected, el => el.bg(t.selected)).when(!selected, el => el.hover(s => s.bg(t.hover)))
       .on_hover((on, cx) => this.hoverRow(row.key, on, cx))
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: MOD, kind: "popup", width: 200, props: { role: "session-menu", session, open: openSpace(this.drawn, row.key) } }); })
@@ -380,8 +381,8 @@ export default class ProjectTree extends StockSpaces {
     if (change !== this.sessionChange) {
       this.sessionChange = change;
       if (changed?.tabTitle) rememberTabTitle(this.tabTitles, changed.tabTitle);
-      if (changed?.pending) this.changing.set(changed.pending.key, changed.pending.fields);
-      if (changed?.failed) this.changing.delete(changed.failed);
+      for (const key of changed?.pending?.keys ?? []) this.changing.set(key, changed.pending.fields);
+      for (const key of changed?.failed ?? []) this.changing.delete(key);
     }
     // A tab someone just named may rename its session, so that is looked at straight away too.
     const signature = JSON.stringify([change, all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"], row.labels["projects.changed"]]),

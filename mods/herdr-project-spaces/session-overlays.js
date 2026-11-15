@@ -6,18 +6,19 @@ import { deletion, performSessionAction, sessionMenu } from "./actions.js";
 import { sessionKey } from "./projection.js";
 import { actionIO, backendStorage, CHANGED, icon, openDialog, reportError, settled } from "./tree.js";
 
-const PENDING = { rename: extra => ({ title: extra.title }), resolve: () => ({ resolved: true }) };
+const PENDING = { rename: extra => ({ title: extra.title }), resolve: () => ({ resolved: true }), close: () => ({ state: "stopped" }), delete: () => ({ deleted: true }) };
 
-// An overlay is its own copy of the mod: shared state tells the tree what is changing, so the row
-// shows it at once, and has it refresh when the action is done rather than at its next poll.
-// A failed action may have changed the session too.
+// An overlay is its own copy of the mod: shared state tells the tree what is changing, so the rows
+// show it at once (a project's close and delete take its threads with it), and has it refresh when
+// the action is done rather than at its next poll. A failed action may have changed the session too.
 async function act(owner, session, action, extra, cx) {
-  const key = sessionKey(session), pending = PENDING[action]?.(extra);
-  if (pending) setShared(CHANGED, { at: Date.now(), pending: { key, fields: pending } });
-  let done = pending && { failed: key };
+  const pending = PENDING[action]?.(extra), threads = ["close", "delete"].includes(action) ? savedSessions(session.endpoint, backendStorage).filter(record => record.role === "thread" && record.coordinator === session.id) : [];
+  const keys = [session, ...threads].map(record => sessionKey({ ...record, endpoint: session.endpoint }));
+  if (pending) setShared(CHANGED, { at: Date.now(), pending: { keys, fields: pending } });
+  let done = pending && { failed: keys };
   try {
     const result = await performSessionAction(session.endpoint, action, session, extra, actionIO(cx, owner));
-    if (pending) done = { pending: { key, fields: settled(pending, result) } };
+    if (pending) done = { pending: { keys, fields: settled(pending, result) } };
     return result;
   } finally { setShared(CHANGED, { at: Date.now(), tabTitle: owner.tabTitle, ...done }); }
 }

@@ -22,12 +22,11 @@ function harness(respond, visible = [pane]) {
   } };
 }
 
-test("project plus creates an unnamed child then verifies and focuses its exact native pane", async () => {
+test("project plus creates an unnamed child, which comes with its terminal, then verifies and focuses its exact native pane", async () => {
   const { io, calls, commands } = harness(() => child);
   await performSessionAction(endpoint, "create-thread", record, {}, io);
-  assert.deepEqual(calls.map(call => call.action), ["create-thread", "open"]);
+  assert.deepEqual(calls.map(call => call.action), ["create-thread"]);
   assert.deepEqual(calls[0].input, { coordinator: "project", by: "user", stateDir: "/state" });
-  assert.deepEqual(calls[1].input, { id: "thread", stateDir: "/state" });
   assert.ok(calls.every(call => call.options.on === "buildbox"));
   assert.deepEqual(commands, [["tab.rename", { id: "buildbox/tab2", name: "New thread" }], ["tab.select", { id: "buildbox/tab2" }], ["pane.focus", { pane: "buildbox/p2" }]]);
 });
@@ -88,17 +87,17 @@ test("every command is authorized first; a refused route runs nothing", async ()
   const asked = [];
   io.authorize = route => asked.push(route);
   await performSessionAction(endpoint, "create-thread", record, {}, io);
-  assert.deepEqual([asked, calls.map(call => call.action)], [[endpoint, endpoint], ["create-thread", "open"]]);
+  assert.deepEqual([asked, calls.map(call => call.action)], [[endpoint], ["create-thread"]]);
   calls.length = 0;
   io.authorize = () => { throw new Error("This session's control command changed"); };
   await assert.rejects(performSessionAction(endpoint, "rename", child, { title: "Late rename" }, io), /command changed/);
   assert.deepEqual(calls, []);
 });
 
-test("a created thread remains a success when its first focus is not ready", async () => {
+test("a created thread without a terminal is opened, and remains a success when its first focus is not ready", async () => {
   const { io, calls, commands } = harness(action => {
     if (action === "open") throw new Error("Still starting");
-    return child;
+    return { ...child, state: "stopped", terminal: undefined };
   });
   const result = await performSessionAction(endpoint, "create-thread", record, {}, io);
   assert.equal(result.id, child.id);

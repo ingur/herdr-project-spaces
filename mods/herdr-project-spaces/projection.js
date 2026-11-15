@@ -28,7 +28,7 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   const byAddress = new Map(terminals.map(terminal => [terminal.address, terminal]));
   const registered = new Map(sessions.map(session => [sessionKey(session), session]));
   const known = new Set(sessions.map(session => session.id));
-  const owned = new Set(sessions.filter(ownsTerminal).map(session => session.native.terminal).filter(Boolean));
+  const owned = new Set(sessions.filter(session => session.available === true).map(session => session.native.terminal).filter(Boolean));
 
   function placement(session) {
     const live = ownsTerminal(session);
@@ -53,13 +53,13 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
     const live = ownsTerminal(session), terminal = session.native.terminal;
     const agent = live && byAgent.get(terminal), pane = live && byTerminal.get(terminal);
     return { key: sessionKey(session), rank: session.rank, session, placement: home, live, program: agent?.program ?? pane?.program ?? null,
-      status: agent?.status ?? pane?.status ?? null, focused: !!(agent?.focused || pane?.focused) };
+      status: agent?.status ?? pane?.status ?? null, focused: !!(agent?.focused || pane?.focused), terminal, agent: !!agent, pane: pane?.pane, tab: pane?.tab ?? agent?.tab };
   }
 
   const groups = new Map();
   for (const session of sessions) {
     const key = sessionKey({ ...session, id: session.coordinator }), coordinator = registered.get(key);
-    if (!coordinator && !ownsTerminal(session)) continue;
+    if (session.deleted || (!coordinator && !ownsTerminal(session))) continue;
     if (!groups.has(key)) {
       const home = placement(coordinator ?? session);
       if (!home) continue;
@@ -83,7 +83,7 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   // Open threads, then resolved ones.
   for (const { group } of groups.values()) group.children.sort((a, b) => !!a.session.resolved - !!b.session.resolved || byRank(a, b));
 
-  // A stale record never hides a shell that inherited its address. Hidden archives still own live terminals.
+  // An unreachable machine's stale record never hides a shell that inherited its address. Hidden archives and closing sessions still own theirs.
   const seen = new Set(owned);
   function independent(pane, agent) {
     const terminal = agent?.address ?? pane?.terminal;

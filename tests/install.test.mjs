@@ -92,7 +92,10 @@ test("install: a home Herdr never started is refused untouched; the layout is ma
   await writeFile(join(home, "layouts", ".state", "Projects.json"), "{}");
   await writeFile(join(home, "keys.json"), JSON.stringify(keys));
   await writeFile(join(home, "mods", MOD, "main.js"), "stale");
-  assert.deepEqual(await install(home, "darwin"), { mod: ["main.js"], layout: "unchanged", keys: [] });
+  // An earlier version's file goes; what Herdr writes into every mod stays.
+  for (const name of ["dropped.js", "jsconfig.json", "gpui-kit.d.ts"]) await writeFile(join(home, "mods", MOD, name), "");
+  assert.deepEqual(await install(home, "darwin"), { mod: ["main.js", "dropped.js (removed)"], layout: "unchanged", keys: [] });
+  assert.deepEqual((await readdir(join(home, "mods", MOD))).sort(), [...await readdir(new URL(`mods/${MOD}`, root)), "jsconfig.json", "gpui-kit.d.ts"].sort());
   assert.deepEqual([await text("layouts/Projects.json"), await text("layouts/.state/Projects.json"), await text("keys.json")], [JSON.stringify(edited), "{}", JSON.stringify(keys)]);
 
   edited.children[0].children[0].content.mod = "personal-spaces";
