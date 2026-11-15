@@ -17,7 +17,7 @@ It is a copy of herdr's own Spaces panel. What it changes there:
 Ask your agent in herdr:
 
 ```text
-add the mod github.com/ingur/herdr-project-spaces
+Read ~/.config/herdr-app/AGENTS.md, then add this mod: github.com/ingur/herdr-project-spaces
 ```
 
 It copies the mod, points your Spaces panel at it and adds the keys. Your layout stays yours.
