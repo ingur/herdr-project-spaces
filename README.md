@@ -2,6 +2,8 @@
 
 A [herdr](https://herdr.dev) sidebar that shows [herdr-projects](https://github.com/ingur/herdr-projects) under each space: projects, their threads, agents and shells.
 
+![herdr-project-spaces](preview.png)
+
 It is a copy of herdr's own Spaces panel. What it changes there:
 
 - each space lists its projects, their threads, and its other agents and shells under it;
