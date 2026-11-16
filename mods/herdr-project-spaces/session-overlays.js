@@ -1,28 +1,9 @@
 import { div } from "gpui-kit";
 import { Button, Input, InputState, h_flex, v_flex } from "gpui-base";
-import { closeOverlay, notify, setShared, theme } from "herdr";
+import { closeOverlay, notify, theme } from "herdr";
 import { currentSession, errorText, savedSessions } from "./backends.js";
-import { deletion, performSessionAction, sessionMenu } from "./actions.js";
-import { sessionKey } from "./projection.js";
-import { actionIO, backendStorage, CHANGED, icon, openDialog, reportError, settled } from "./tree.js";
-
-const PENDING = { rename: extra => ({ title: extra.title }), resolve: () => ({ resolved: true }), close: () => ({ state: "stopped" }), delete: () => ({ deleted: true }) };
-
-// An overlay is its own copy of the mod: shared state tells the tree what is changing, so the rows
-// show it at once (a project's close and delete take its threads with it), and has it refresh when
-// the action is done rather than at its next poll. A failed action may have changed the session too.
-async function act(owner, session, action, extra, cx) {
-  const pending = PENDING[action]?.(extra), threads = ["close", "delete"].includes(action) ? savedSessions(session.endpoint, backendStorage).filter(record => record.role === "thread" && record.coordinator === session.id) : [];
-  const keys = [session, ...threads].map(record => sessionKey({ ...record, endpoint: session.endpoint }));
-  if (pending) setShared(CHANGED, { at: Date.now(), pending: { keys, fields: pending } });
-  let done = pending && { failed: keys };
-  try {
-    const result = await performSessionAction(session.endpoint, action, session, extra, actionIO(cx, owner));
-    // A delete answers ids, not the session: its pending `deleted: true` stands.
-    if (pending) done = { pending: { keys, fields: action === "delete" ? pending : settled(pending, result) } };
-    return result;
-  } finally { setShared(CHANGED, { at: Date.now(), tabTitle: owner.tabTitle, ...done }); }
-}
+import { act, deletion, sessionMenu } from "./actions.js";
+import { actionIO, backendStorage, icon, openDialog, reportError } from "./tree.js";
 
 export class SessionMenu {
   init(options, cx) {
@@ -51,7 +32,7 @@ export class SessionMenu {
     cx.spawn(async cx => {
       try {
         // shortcut: where a stopped session opens was decided as this menu opened; decide here if menus ever stay open long.
-        await act(this, session, item.action, item.action === "open" ? this.options.open : {}, cx);
+        await act(item.action, session, item.action === "open" ? this.options.open : {}, actionIO(cx, this));
         closeOverlay(this.options.overlay);
       } catch (error) { reportError(error); }
       finally { this.busy = false; if (!this.closed) cx.notify(); }
@@ -121,7 +102,7 @@ export class NameSession {
     cx.notify();
     cx.spawn(async cx => {
       try {
-        const result = this.create ? await act(this, session, "create-thread", title ? { title } : {}, cx) : await act(this, session, "rename", { title }, cx);
+        const result = await act(this.create ? "create-thread" : "rename", session, title ? { title } : {}, actionIO(cx, this));
         closeOverlay(this.options.overlay);
         if (result.focusError) notify({ title: `Thread "${result.title}" created`, body: `Click its row to open it; do not create another thread to retry. ${result.focusError}`, level: "info" });
       } catch (error) { this.error = errorText(error); }
@@ -164,7 +145,7 @@ export class DeleteSession {
     cx.notify();
     cx.spawn(async cx => {
       try {
-        await act(this, session, "delete", {}, cx);
+        await act("delete", session, {}, actionIO(cx, this));
         closeOverlay(this.options.overlay);
       } catch (error) { this.error = errorText(error); }
       finally { this.busy = false; if (!this.closed) cx.notify(); }

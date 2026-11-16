@@ -1,6 +1,8 @@
 import { errorText, invoke, qualify, sessionRecord } from "./backends.js";
+import { sessionKey } from "./projection.js";
 
 const kind = session => session.role === "thread" ? "thread" : "project";
+const threadsOf = (session, records) => records.filter(record => record.role === "thread" && record.coordinator === session.id);
 
 // No Reopen: the user's next prompt in a resolved project or thread reopens it. What ends something
 // comes last, as stock's Close: the menu draws its one line above the first of Close, Resolve and Delete.
@@ -15,7 +17,7 @@ export const sessionMenu = session => [
 // What the delete dialog says goes with `session`. `records` are its backend's sessions: every
 // thread of a project goes with it, the resolved ones too.
 export function deletion(session, records) {
-  const threads = records.filter(record => record.role === "thread" && record.coordinator === session.id).length;
+  const threads = threadsOf(session, records).length;
   return {
     title: `Delete ${kind(session)}?`,
     // As stock's "Close space?": the name, then what goes with it.
@@ -86,4 +88,23 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
     if (!created) throw error;
     return { ...created, focusError: errorText(error) };
   }
+}
+
+// What each action shows on its rows at once, until the list says the same or the action fails.
+const PENDING = { rename: extra => ({ title: extra.title }), resolve: () => ({ resolved: true }), close: () => ({ state: "stopped" }), delete: () => ({ deleted: true }),
+  open: () => ({ state: "starting" }), order: extra => ({ rank: extra.rank }), place: extra => ({ space: extra.space }) };
+
+// A user's action on `session`, from the tree or an overlay alike. `io.shown(pending)` as it starts: the rows'
+// keys (a project's close and delete take its threads) and the fields it changes; `io.shown(pending, saved)` as it ends.
+export async function act(action, session, extra, io) {
+  const fields = PENDING[action]?.(extra), threads = ["close", "delete"].includes(action) ? threadsOf(session, io.sessions(session.endpoint)) : [];
+  const pending = fields ? { keys: [session, ...threads].map(record => sessionKey({ ...record, endpoint: session.endpoint })), fields } : null;
+  if (pending) io.shown(pending);
+  let saved = null;
+  try {
+    const result = await performSessionAction(session.endpoint, action, session, extra, io);
+    // A start saves nothing (the session moves on by itself, and the list says how far); a delete answers ids, not the session.
+    if (fields && action !== "open") saved = action === "delete" ? fields : Object.fromEntries(Object.keys(fields).map(field => [field, result[field] ?? fields[field]]));
+    return result;
+  } finally { io.shown(pending, saved); }
 }

@@ -2,9 +2,9 @@ import { div, svg, image } from "gpui-kit";
 import { Button, h_flex, v_flex } from "gpui-base";
 import { agents, exec, hc, machines, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, theme, updates } from "herdr";
 import StockSpaces, { STOCK_VERSION } from "./stock-spaces.js";
-import { SessionBackends, authorizeEndpoint, errorText, unqualify } from "./backends.js";
+import { SessionBackends, authorizeEndpoint, errorText, qualify, savedSessions, unqualify } from "./backends.js";
 import { displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceKey, spaceRows, stepRow, tabRenames, urgentStatus } from "./projection.js";
-import { performSessionAction } from "./actions.js";
+import { act } from "./actions.js";
 
 export const MOD = "herdr-project-spaces";
 // The mod's dialogs open as Herdr opens its own prompt and confirm: 380 wide and, with no height given, as high as their content.
@@ -13,10 +13,8 @@ export const backendStorage = {
   getItem: key => shared(`${MOD}.${key}`),
   setItem: (key, value) => { if (shared(`${MOD}.${key}`) !== value) setShared(`${MOD}.${key}`, value); },
 };
-// An overlay (its own copy of the mod) sets this after acting on a session: the tree refreshes at once.
+// An overlay (its own copy of the mod) sets this as it starts and ends an action (actionIO's `shown`): the tree shows it at once.
 export const CHANGED = `${MOD}.changed`;
-// What an action really saved, for the fields it was shown changing.
-export const settled = (pending, result) => Object.fromEntries(Object.keys(pending).map(field => [field, result?.[field] ?? pending[field]]));
 // Herdr ships no bin icon, so that one is ours.
 export const icon = (name, size = 13) => svg(name === "trash" ? `mods/${MOD}/trash.svg` : `mods/workspace-chrome/${name}.svg`).size(size).flex_none();
 // Herdr's own program icon, drawn as the Agents mod draws it; a terminal where the row has none.
@@ -29,10 +27,16 @@ export const actionIO = (cx, owner) => ({
   exec, panes, run, tabs: () => spaces().flatMap(space => space.tabs ?? []),
   authorize: endpoint => authorizeEndpoint(endpoint, backendStorage, terminals()),
   closed: () => owner.closed, pause: ms => new Promise(resolve => cx.timer.after(ms, resolve)),
+  sessions: endpoint => savedSessions(endpoint, backendStorage),
   tabRenamed: (endpoint, session, tab) => {
     const title = { key: sessionKey({ ...session, endpoint }), tab, title: session.title, name: session.title, confirmed: false };
     if (owner.tabTitles) rememberTabTitle(owner.tabTitles, title);
     else owner.tabTitle = title;
+  },
+  // The tree shows an action's change on its own rows; an overlay tells the tree through CHANGED.
+  shown: (pending, saved) => {
+    if (owner.tabTitles) { if (pending) owner.pend(pending, saved); cx.notify(); }
+    else setShared(CHANGED, saved === undefined ? { at: Date.now(), pending } : { at: Date.now(), tabTitle: owner.tabTitle, ...(pending && { pending, saved }) });
   },
 });
 export const reportError = error => notify({ title: "Project sessions", body: errorText(error), level: "error" });
@@ -95,7 +99,7 @@ export default class ProjectTree extends StockSpaces {
     // No endpoint is configured: sessions' terminals advertise theirs. Until one has, this is stock Spaces.
     this.backends = new SessionBackends({ storage: backendStorage, exec, hc, terminals });
     if (this.backends.errors.length) reportError(this.backends.errors.join("\n"));
-    // A refresh starts control per backend, and hc for the machines except in five of six timed ones and after a move. Actions and label changes (control marks each change with `projects.changed`) refresh at once; the timer catches the rest within ~10 s.
+    // A refresh starts control per backend, and hc for the machines except in five of six timed ones. Actions and label changes (control marks each change with `projects.changed`) refresh at once; the timer catches the rest within ~10 s.
     this.ticks = 0;
     this.sessionTimer = cx.timer.every(10000, cx => this.refreshSessions(cx, ++this.ticks % 6 === 0));
     this.refreshSessions(cx);
@@ -132,7 +136,7 @@ export default class ProjectTree extends StockSpaces {
         this.refreshingSessions = false;
         if (!this.closed) {
           if (!this.actions.size) for (const rename of tabRenames(this.backends.sessions(), panes(), spaces().flatMap(space => space.tabs ?? []), this.tabTitles)) {
-            if (rename.session) this.action("rename", { key: sessionKey(rename.session), session: rename.session }, cx, { title: rename.title }, { title: rename.title });
+            if (rename.session) this.action("rename", { key: sessionKey(rename.session), session: rename.session }, cx, { title: rename.title });
             else run("tab.rename", rename);
           }
           if (previous !== JSON.stringify([this.backends.sessions(), this.backends.errors])) cx.notify();
@@ -148,24 +152,14 @@ export default class ProjectTree extends StockSpaces {
     cx.notify();
   }
 
-  // `changing` (the fields this action changes) shows on the row at once; see withPending(). A start's
-  // `starting` ends with the start: the session moves on by itself, and the list says how far.
-  action(action, row, cx, extra = {}, pending) {
+  // One action at a time per row; what it changes shows at once (see pend()).
+  action(action, row, cx, extra = {}) {
     if (this.actions.has(row.key) || this.closed) return;
     this.actions.add(row.key);
-    const key = sessionKey(row.session);
-    if (pending) this.changing.set(key, pending);
-    cx.notify();
     cx.spawn(async cx => {
-      try {
-        const result = await performSessionAction(row.session.endpoint, action, row.session, extra, actionIO(cx, this));
-        if (action === "open") this.changing.delete(key);
-        else if (pending) this.changing.set(key, settled(pending, result));
-      } catch (error) { this.changing.delete(key); reportError(error); }
-      finally {
-        this.actions.delete(row.key);
-        if (!this.closed) { this.refreshSessions(cx); cx.notify(); }
-      }
+      try { await act(action, row.session, extra, actionIO(cx, this)); }
+      catch (error) { reportError(error); }
+      finally { this.actions.delete(row.key); if (!this.closed) { this.refreshSessions(cx); cx.notify(); } }
     });
   }
 
@@ -194,13 +188,23 @@ export default class ProjectTree extends StockSpaces {
     if (key) this.toggle(this.showResolved, key, "projects.resolved", cx);
   }
 
-  // What someone just changed (name, resolved, place in the list, started, closed, deleted) shows at
-  // once: `changing` holds a session's changed fields until the registry says the same, or saving failed.
+  // `changing`: per session, the fields actions are changing, shown until the registry says the same. As an action
+  // ends, its fields give way to what it saved (null: nothing), unless a later action has changed them since.
+  pend({ keys, fields }, saved) {
+    for (const key of keys) {
+      const held = { ...this.changing.get(key) };
+      for (const field in fields) if (saved === undefined || held[field] === fields[field]) held[field] = saved === undefined ? fields[field] : saved?.[field];
+      const left = Object.entries(held).filter(([, value]) => value !== undefined);
+      left.length ? this.changing.set(key, Object.fromEntries(left)) : this.changing.delete(key);
+    }
+  }
+
   withPending(session) {
-    const key = sessionKey(session), pending = this.changing.get(key);
-    if (!pending) return session;
-    if (Object.keys(pending).every(field => session[field] === pending[field])) { this.changing.delete(key); return session; }
-    return { ...session, ...pending };
+    const key = sessionKey(session), held = this.changing.get(key);
+    if (!held) return session;
+    if (Object.keys(held).every(field => session[field] === held[field])) { this.changing.delete(key); return session; }
+    // Rows are placed by `native`: a space being changed moves them too.
+    return { ...session, ...held, native: { ...session.native, space: qualify(session.endpoint.machine, held.space ?? session.space) } };
   }
 
   // The same for a terminal that is no session: `moved` holds its rank until its label says so.
@@ -215,18 +219,15 @@ export default class ProjectTree extends StockSpaces {
 
   // Keeps a dropped row's rank: a session's in its registry, an independent terminal's as an hc label.
   reorder(row, rank, cx) {
-    const key = row.session ? sessionKey(row.session) : row.terminal, held = row.session ? this.changing : this.moved;
-    held.set(key, row.session ? { ...this.changing.get(key), rank } : rank);
+    if (row.session) return this.action("order", row, cx, { rank });
+    this.moved.set(row.terminal, rank);
     cx.notify();
     cx.spawn(async cx => {
       try {
-        if (row.session) await performSessionAction(row.session.endpoint, "order", row.session, { rank }, actionIO(cx, this));
-        else {
-          const result = await hc(["label", row.terminal, "--json", `projects.rank=${rank}`]);
-          if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "hc did not label the terminal.");
-        }
-      } catch (error) { held.delete(key); reportError(error); }
-      if (!this.closed) { if (row.session) this.refreshSessions(cx, false); cx.notify(); }
+        const result = await hc(["label", row.terminal, "--json", `projects.rank=${rank}`]);
+        if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "hc did not label the terminal.");
+      } catch (error) { this.moved.delete(row.terminal); reportError(error); }
+      if (!this.closed) cx.notify();
     });
   }
 
@@ -262,7 +263,7 @@ export default class ProjectTree extends StockSpaces {
 
   // A row's click, and what the next/prev keys do: control only starts a stopped session; a running one is focused as an agent or shell row.
   open(row, cx) {
-    if (row.session && !row.live) this.action("open", row, cx, openSpace(this.drawn, row.key), { state: "starting" });
+    if (row.session && !row.live) this.action("open", row, cx, openSpace(this.drawn, row.key));
     else if (row.agent) run("agent.focus", { terminal: row.terminal });
     else { if (row.tab) run("tab.select", { id: row.tab }); if (row.pane) run("pane.focus", { pane: row.pane }); }
   }
@@ -384,8 +385,7 @@ export default class ProjectTree extends StockSpaces {
     if (change !== this.sessionChange) {
       this.sessionChange = change;
       if (changed?.tabTitle) rememberTabTitle(this.tabTitles, changed.tabTitle);
-      for (const key of changed?.pending?.keys ?? []) this.changing.set(key, changed.pending.fields);
-      for (const key of changed?.failed ?? []) this.changing.delete(key);
+      if (changed?.pending) this.pend(changed.pending, changed.saved);
     }
     // A tab someone just named may rename its session, so that is looked at straight away too.
     const signature = JSON.stringify([change, all.filter(row => row.labels?.["projects.control"]).map(row => [row.address, row.state, row.labels["projects.control"], row.labels["projects.changed"]]),
