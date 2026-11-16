@@ -14,7 +14,7 @@ The block Spaces was in, top to bottom, everything in the user's theme colors:
 - **Under a space**, highest rank first, 28 high, rounded 7, text 12.8:
   - a **project**: indented 26; fold arrow, the icon of the program in its terminal (a terminal glyph when nothing runs), its title, status and, on hover, an archive button (where it has resolved threads) and a `+`;
   - its **threads**: indented 73; icon, title, status. Open ones first, resolved ones after;
-  - an **independent row** for every other agent or shell of the space: indented 53; icon, title, status.
+  - an **independent row** for every other agent or shell of the space: indented 53; icon, title, status. A terminal control started for a session is none of them (after a reboot it is back as a shell waiting for it): that terminal is the session's own row until an agent reports in it. A shell the user started is always listed.
 - A session that runs is in `foreground`; a stopped or resolved one in `dim`. Exactly one row has the `selected` fill: the row of the focused terminal, or the folded row that hides it, else the active space. Other rows fill with `hover` under the pointer.
 - **Hover controls** (20 px) show only on the row under the pointer, as Herdr's pin in Agents does; here they keep their place while hidden, so nothing moves. An archive button also stays while its resolved view is on, drawn `selected`.
 - **Hover line**: a session's name shows its folder, then only what the row cannot show: `· resolved`, `· stopped`, `· unavailable`, `· 2 messages waiting` for a stopped session that has mail, `· in <space>` for a terminal running in another space. Another agent's or shell's name shows its folder. One line, never the title again.

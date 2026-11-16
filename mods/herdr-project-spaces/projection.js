@@ -88,11 +88,11 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   function independent(pane, agent) {
     const terminal = agent?.address ?? pane?.terminal;
     if (terminal && seen.has(terminal)) return;
-    // A terminal just started for a session is that session's, not a shell of its own for the
-    // moment before it is pinned to its agent. Once pinned, control's view decides: a pinned
-    // terminal control no longer lists is a shell its agent died in.
+    // A terminal control started for a session is that session's, not a shell of its own: before it
+    // is pinned to its agent, and after that agent is gone, while it waits for the session to come
+    // back. Only an agent reporting in it makes it a row of its own; a shell the user started is theirs.
     const labels = byAddress.get(terminal)?.labels;
-    if (known.has(labels?.["projects.session"]) && !labels["projects.pid"]) return;
+    if (!agent && labels?.["projects.launched"] && known.has(labels["projects.session"])) return;
     const location = byTab.get(pane?.tab ?? agent?.tab);
     const target = location?.row ?? bySpace.get(agent?.space);
     if (!target) return;
