@@ -27,7 +27,6 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   const byAgent = new Map(agents.map(agent => [agent.address, agent]));
   const byAddress = new Map(terminals.map(terminal => [terminal.address, terminal]));
   const registered = new Map(sessions.map(session => [sessionKey(session), session]));
-  const known = new Set(sessions.map(session => session.id));
   const owned = new Set(sessions.filter(session => session.available === true).map(session => session.native.terminal).filter(Boolean));
   // Backends that have not answered since this copy started, or not now.
   const unanswered = new Set(sessions.filter(session => session.available !== true).map(session => endpointKey(session.endpoint)));
