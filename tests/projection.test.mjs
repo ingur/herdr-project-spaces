@@ -347,3 +347,22 @@ test("a terminal control started and left behind is a shell of its own only whil
   assert.deepEqual(entries([{ address: "t9", tab: "tab", program: { name: "pi", agent: true }, status: "idle" }], left).map(entry => entry.title), ["pi"]);
   assert.deepEqual(entries([], { "projects.session": "x" }).map(entry => entry.title), ["zsh"], "a shell the user started is theirs");
 });
+
+test("a session's terminal is no row of its own while its control has not answered", () => {
+  const control = JSON.stringify({ version: 2, command: ["/bin/node", "/control.mjs"], stateDir: "/state" });
+  const panes = [{ pane: "p1", tab: "tab-one", terminal: "t1" }], agents = [{ address: "t1", tab: "tab-one", space: "one", program: { name: "pi", agent: true }, status: "idle" }];
+  const terminals = [{ address: "t1", state: "live", labels: { "projects.session": "c", "projects.control": control } }];
+  const entries = sessions => projectSpaces({ ...world, panes, agents, terminals, sessions })[0].entries.map(entry => entry.terminal);
+  assert.deepEqual(entries([session("c", "c", { terminal: "t1", ...live, available: false })]), [], "after a reload, or while control fails");
+  assert.deepEqual(entries([session("other")]), ["t1"], "a control that answered without the session leaves the terminal a row of its own");
+});
+
+test("tab names are neither changed nor forgotten while a control has not answered or cannot reach hc", () => {
+  const record = session("x", "x", { title: "Thread", terminal: "t1", ...live });
+  const panes = [{ terminal: "t1", tab: "a" }], tabs = [{ id: "a", name: "Thread", named: true, panes: 1 }], applied = new Map();
+  tabRenames([record], panes, tabs, applied);
+  for (const extra of [{ available: false }, { state: "stopped", error: "hc is not running" }]) {
+    assert.deepEqual(tabRenames([{ ...record, ...extra }], panes, tabs, applied), []);
+  }
+  assert.deepEqual(tabRenames([{ ...record, state: "stopped" }], panes, tabs, applied), [{ id: "a", name: "" }], "a tab its session really left still gets its number back");
+});

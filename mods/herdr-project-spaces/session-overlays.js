@@ -18,7 +18,8 @@ async function act(owner, session, action, extra, cx) {
   let done = pending && { failed: keys };
   try {
     const result = await performSessionAction(session.endpoint, action, session, extra, actionIO(cx, owner));
-    if (pending) done = { pending: { keys, fields: settled(pending, result) } };
+    // A delete answers ids, not the session: its pending `deleted: true` stands.
+    if (pending) done = { pending: { keys, fields: action === "delete" ? pending : settled(pending, result) } };
     return result;
   } finally { setShared(CHANGED, { at: Date.now(), tabTitle: owner.tabTitle, ...done }); }
 }
@@ -58,7 +59,7 @@ export class SessionMenu {
   }
 
   render() {
-    const t = theme(), list = sessionMenu(this.session()), ends = list.findIndex(item => item.action === "resolve" || item.action === "delete");
+    const t = theme(), list = sessionMenu(this.session()), ends = list.findIndex(item => ["close", "resolve", "delete"].includes(item.action));
     return v_flex().id("session-menu").track_focus(this.handle).w_full().min_h(0).p(5).bg(t.popover).text_size(12.8)
       .on_key_down((e, cx) => {
         if (e.key === "escape") closeOverlay(this.options.overlay);

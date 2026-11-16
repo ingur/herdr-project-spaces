@@ -3,7 +3,7 @@ import { errorText, invoke, qualify, sessionRecord } from "./backends.js";
 const kind = session => session.role === "thread" ? "thread" : "project";
 
 // No Reopen: the user's next prompt in a resolved project or thread reopens it. What ends something
-// comes last, as stock's Close: the menu draws its one line above Resolve, or above Delete alone.
+// comes last, as stock's Close: the menu draws its one line above the first of Close, Resolve and Delete.
 export const sessionMenu = session => [
   { title: `Rename ${kind(session)}`, action: "rename", icon: "square-pen" },
   { title: "Open terminal", action: "open", icon: "terminal" },

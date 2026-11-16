@@ -1,4 +1,4 @@
-import { endpointKey, qualify, unqualify } from "./backends.js";
+import { discoverEndpoints, endpointKey, qualify, unqualify } from "./backends.js";
 
 export const sessionKey = session => JSON.stringify([endpointKey(session.endpoint), session.id]);
 export const ownsTerminal = session => session.available === true && session.state !== "stopped" && !!session.terminal;
@@ -29,6 +29,8 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   const registered = new Map(sessions.map(session => [sessionKey(session), session]));
   const known = new Set(sessions.map(session => session.id));
   const owned = new Set(sessions.filter(session => session.available === true).map(session => session.native.terminal).filter(Boolean));
+  // Backends that have not answered since this copy started, or not now.
+  const unanswered = new Set(sessions.filter(session => session.available !== true).map(session => endpointKey(session.endpoint)));
 
   function placement(session) {
     const live = ownsTerminal(session);
@@ -93,6 +95,9 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
     // back. Only an agent reporting in it makes it a row of its own; a shell the user started is theirs.
     const labels = byAddress.get(terminal)?.labels;
     if (!agent && labels?.["projects.launched"] && known.has(labels["projects.session"])) return;
+    // Until the backend its label names answers, any session's terminal is that session's: its row stands for it, dim.
+    const advertised = labels?.["projects.session"] && discoverEndpoints([byAddress.get(terminal)]).endpoints[0];
+    if (advertised && unanswered.has(endpointKey(advertised))) return;
     const location = byTab.get(pane?.tab ?? agent?.tab);
     const target = location?.row ?? bySpace.get(agent?.space);
     if (!target) return;
@@ -194,7 +199,7 @@ export function resolvedToggle(rows, selected) {
 // The rows a drag of the row keyed `key` may land among, in display order: a thread's fellow threads
 // of the same resolved state, or a project's or independent row's own space. Never another project,
 // space or machine. Null: a row with nowhere to keep a rank (no session, no terminal), or none.
-export function siblings(rows, key) {
+function siblings(rows, key) {
   for (const row of rows) {
     const items = spaceItems(row), item = items.find(item => item.key === key);
     if (item) return item.coordinator || item.terminal ? items : null;
@@ -260,6 +265,8 @@ export const sessionDetail = (row, space) => [row.session.cwd, row.session.resol
 // title separate from the tab's so a pending or failed control rename never restores the old name.
 // `applied` holds that state per session and the title given per tab (for a split left behind).
 export function tabRenames(sessions, panes, tabs, applied) {
+  // Until every backend answers and sees hc, a tab's session may only look gone: name nothing, forget nothing.
+  if (sessions.some(session => session.available !== true || session.error)) return [];
   const renames = [], held = new Set();
   for (const session of sessions.filter(ownsTerminal)) {
     const pane = panes.find(pane => pane.terminal === session.native.terminal);

@@ -8,9 +8,10 @@ const ROLES = { "session-menu": SessionMenu, rename: NameSession, "new-thread": 
 // Use the same per-overlay role convention as the installed native mods.
 export default class ProjectSpaces extends View {
   init(_options, cx) {
-    const options = props() ?? {};
-    this.role = new (ROLES[options.role] ?? ProjectTree)();
-    this.role.init(options, cx);
+    const options = props() ?? {}, Role = ROLES[options.role];
+    // The tree is a View, whose constructor calls its init as Herdr's does; the overlays are plain classes.
+    this.role = Role ? new Role() : new ProjectTree(options);
+    if (Role) this.role.init(options, cx);
   }
 
   render(cx) { return this.role.render(cx); }

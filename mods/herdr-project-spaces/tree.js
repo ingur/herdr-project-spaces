@@ -45,7 +45,7 @@ function readSet(key) {
   } catch (error) { reportError(error); return new Set(); }
 }
 
-export function smallButton(id, glyph, title, action, selected = false) {
+function smallButton(id, glyph, title, action, selected = false) {
   const t = theme();
   return Button.new(id).size(20).flex_none().flex().items_center().justify_center().rounded(4)
     .text_color(selected ? t.foreground : t.dim).when(selected, el => el.bg(t.selected))
@@ -58,7 +58,7 @@ export function smallButton(id, glyph, title, action, selected = false) {
 const slot = () => div().size(20).flex_none();
 
 // The Agents panel's status mark for the most urgent of `rows` (a spinner while working, a ! when
-// blocked, a dot when done, nothing when idle), then a small dim count of the rows a fold hides.
+// blocked, a dot when done; nothing when idle, where Agents draws a ring), then a small dim count of the rows a fold hides.
 // Spinner and dot share a centre, so the mark keeps its place when the status changes.
 function marks(rows, hidden, t) {
   const status = urgentStatus(rows);
@@ -83,6 +83,8 @@ export default class ProjectTree extends StockSpaces {
     this.tabTitles = new Map();
     this.moved = new Map();
     this.changing = new Map();
+    // The key outlives the copy that wrote it (Herdr saves shared state): act only on what changes from here on.
+    this.sessionChange = JSON.stringify(shared(CHANGED));
     // The Spaces this extends is one Herdr release's copy: say so once for each other release it runs in.
     // Read leniently: this is the one line meant for a Herdr it was not written against.
     const app = updates()?.app?.version;
@@ -93,7 +95,7 @@ export default class ProjectTree extends StockSpaces {
     // No endpoint is configured: sessions' terminals advertise theirs. Until one has, this is stock Spaces.
     this.backends = new SessionBackends({ storage: backendStorage, exec, hc, terminals });
     if (this.backends.errors.length) reportError(this.backends.errors.join("\n"));
-    // A refresh starts control per backend, every sixth timed one hc for the machines too. Actions and label changes (control marks each change with `projects.changed`) refresh at once; the timer catches the rest within ~10 s.
+    // A refresh starts control per backend, and hc for the machines except in five of six timed ones and after a move. Actions and label changes (control marks each change with `projects.changed`) refresh at once; the timer catches the rest within ~10 s.
     this.ticks = 0;
     this.sessionTimer = cx.timer.every(10000, cx => this.refreshSessions(cx, ++this.ticks % 6 === 0));
     this.refreshSessions(cx);
@@ -112,12 +114,11 @@ export default class ProjectTree extends StockSpaces {
   close() {
     this.closed = true;
     this.sessionTimer.cancel();
-    this.watching.clear();
   }
 
   refreshSessions(cx, machines = true) {
     if (this.closed) return;
-    if (this.refreshingSessions) { this.refreshAgain = true; return; }
+    if (this.refreshingSessions) { this.refreshAgain ||= machines; return; }
     const previous = JSON.stringify([this.backends.sessions(), this.backends.errors]);
     this.refreshingSessions = true;
     cx.spawn(async cx => {
@@ -135,7 +136,7 @@ export default class ProjectTree extends StockSpaces {
             else run("tab.rename", rename);
           }
           if (previous !== JSON.stringify([this.backends.sessions(), this.backends.errors])) cx.notify();
-          if (this.refreshAgain) { this.refreshAgain = false; this.refreshSessions(cx); }
+          if (this.refreshAgain !== undefined) { const machines = this.refreshAgain; this.refreshAgain = undefined; this.refreshSessions(cx, machines); }
         }
       }
     });
@@ -304,12 +305,11 @@ export default class ProjectTree extends StockSpaces {
   }
 
   // Stock's hook for a row that is no space, dropped on space `w`: what the drop does when the row
-  // keyed `from` is a project (projection's `spaceDrop`), and stock draws its drop line. Control
-  // keeps the project's new space; one that runs is where its terminal is.
+  // keyed `from` is a stopped project (projection's `spaceDrop`), and stock draws its drop line. Control
+  // keeps the project's new space; one that runs is where its terminal is, so it has no drop.
   rowDrop(from, w) {
     const row = spaceDrop(this.drawn, from, w.id);
-    return row && (cx => row.live ? reportError("Close this project's terminal before moving it to another space.")
-      : this.action("place", row, cx, { space: unqualify(w.machine, w.id) }));
+    return row && !row.live ? cx => this.action("place", row, cx, { space: unqualify(w.machine, w.id) }) : null;
   }
 
   unavailableRows(rows, t) {
@@ -351,7 +351,7 @@ export default class ProjectTree extends StockSpaces {
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: MOD, kind: "popup", width: 200, props: { role: "session-menu", session, open: openSpace(this.drawn, row.key) } }); })
       .when(project, el => el.child(smallButton(`fold-project-${row.key}`, folded ? "chevron-right" : "chevron-down", `${folded ? "Expand" : "Fold"} ${session.title}`, cx => this.toggle(this.projectFolds, foldKey, "projects.folded", cx))))
       .child(programIcon(row.program))
-      // As stock's truncated texts, the name carries the hover line; the row's buttons have their own.
+      // The name carries the hover line, which stock's truncated names do not have; the row's buttons have their own.
       .child(div().flex_1().min_w(0).truncate().tooltip(sessionDetail(row, anchor)).child(session.title))
       .children(marks([row, ...hidden], hidden.length, t))
       .children(controls), row, t);
