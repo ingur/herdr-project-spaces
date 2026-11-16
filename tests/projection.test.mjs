@@ -337,14 +337,15 @@ test("a terminal started for a session is never listed as a shell of its own whi
   assert.equal(row.groups.length, 1);
 });
 
-test("a terminal control started and left behind is a shell of its own only while an agent reports in it", () => {
+test("a terminal control started is never a row of its own; a shell the user started is", () => {
   const spaces = [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "1", named: false, panes: 1 }] }];
   const stopped = { id: "x", coordinator: "x", role: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
   const entries = (agents, labels) => projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents, sessions: [stopped],
     terminals: [{ address: "t9", argv: ["zsh"], labels }] })[0].entries;
   const left = { "projects.session": "x", "projects.launched": "1" };
   assert.deepEqual(entries([], left), [], "the shell Herdr brought back in the session's tab stands for the session");
-  assert.deepEqual(entries([{ address: "t9", tab: "tab", program: { name: "pi", agent: true }, status: "idle" }], left).map(entry => entry.title), ["pi"]);
+  assert.deepEqual(entries([{ address: "t9", tab: "tab", program: { name: "pi", agent: true }, status: "idle" }], left), [], "nor while its agent reports before the list says whose it is");
+  assert.deepEqual(entries([], { "projects.session": "new", "projects.launched": "1" }), [], "nor for a session the list does not know yet");
   assert.deepEqual(entries([], { "projects.session": "x" }).map(entry => entry.title), ["zsh"], "a shell the user started is theirs");
 });
 

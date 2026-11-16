@@ -90,11 +90,10 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   function independent(pane, agent) {
     const terminal = agent?.address ?? pane?.terminal;
     if (terminal && seen.has(terminal)) return;
-    // A terminal control started for a session is that session's, not a shell of its own: before it
-    // is pinned to its agent, and after that agent is gone, while it waits for the session to come
-    // back. Only an agent reporting in it makes it a row of its own; a shell the user started is theirs.
+    // A terminal control started is its session's, never a row of its own: the label arrives with the
+    // terminal, before control's list says whose it is. A shell the user started is theirs.
     const labels = byAddress.get(terminal)?.labels;
-    if (!agent && labels?.["projects.launched"] && known.has(labels["projects.session"])) return;
+    if (labels?.["projects.launched"]) return;
     // Until the backend its label names answers, any session's terminal is that session's: its row stands for it, dim.
     const advertised = labels?.["projects.session"] && discoverEndpoints([byAddress.get(terminal)]).endpoints[0];
     if (advertised && unanswered.has(endpointKey(advertised))) return;
