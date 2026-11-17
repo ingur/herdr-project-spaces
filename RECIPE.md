@@ -43,7 +43,7 @@ The block Spaces was in, top to bottom, everything in the user's theme colors:
 - **Keys**: `keys.json` for Linux and Windows, `keys.macos.json` for macOS, one section `layout:Projects` each. Merge the one for the user's system; if their layout has another name, the section is `layout:<that name>`. They bind `herdr-project-spaces.next`, `.prev`, `.fold`, `.unfold`, `.move-up`, `.move-down`, `.toggle-resolved`, read with `nextCommand()`.
 - **Files of the mod**:
   - `main.js`: one `View` that is the tree, or by `props().role` one of the overlays this mod opens on itself: `session-menu` (popup), `rename`, `new-thread`, `delete` (dialogs), each with `session` in its props.
-  - `stock-spaces.js`: a modified copy of Herdr 0.1.16's `mods/spaces/main.js` (Apache-2.0, see `NOTICE`) with four optional hooks called from it (`rowLeading`, `rowTrailing`, `rowDrop`, `unavailableRows`) and `STOCK_VERSION`. The untouched original is `vendor/spaces-0.1.16.js`; its SHA-256 is in the header.
+  - `stock-spaces.js`: a modified copy of Herdr 0.1.16's `mods/spaces/main.js` (Apache-2.0, see `NOTICE`) with four optional hooks called from it (`rowLeading`, `rowTrailing`, `rowDrop`, `unavailableRows`), a stable id on the list, and `STOCK_VERSION`. The untouched original is `vendor/spaces-0.1.16.js`; its SHA-256 is in the header.
   - `tree.js`: extends that class. Overrides `ordered`, `row`, `compact`, `render` and the hooks; reads its `pressed`, `over`. Draws the rows, folds, drags and keys. Also holds what the overlays share with it (`backendStorage`, `CHANGED`, `actionIO`, `openDialog`, `reportError`, `icon`), so each overlay loads it too.
   - `projection.js`: plain functions from `spaces()`, `panes()`, `agents()`, `terminals()` and the session list to the rows: grouping, order, selection, what a key or a drop does; also a session's hover line and which tab names and session titles follow which (`tabRenames`).
   - `backends.js`: the control descriptor, discovery, the saved snapshot, the check before every command.
@@ -62,7 +62,7 @@ The block Spaces was in, top to bottom, everything in the user's theme colors:
 ## Watch out
 
 - It takes the Spaces block, so it cannot be combined with another mod that does.
-- It carries a copy of one Herdr release's Spaces, so after a Herdr update the copy is behind (the mod says so once). To refresh it: copy Herdr's new `mods/spaces/main.js` to `vendor/` in place of the old one, re-apply to it the few hook lines listed in the header of `stock-spaces.js` (with the new version and hash there), then run the tests and `herdr-app check`.
+- It carries a copy of one Herdr release's Spaces, so after a Herdr update the copy is behind (the mod says so once). To refresh it: copy Herdr's new `mods/spaces/main.js` to `vendor/` in place of the old one, re-apply to it the few lines listed in the header of `stock-spaces.js` (with the new version and hash there), then run the tests and `herdr-app check`.
 - `herdr-app check` draws only the first frame, where no session is known yet. Rows, drags, the menu and the dialogs need a registered session to be seen.
 - It runs the command a terminal's label names, as the user, on that terminal's machine. Whatever can label a terminal can have it run; say so before adding the mod.
 - An endpoint is never configured. No `projects.control` label on a live terminal and nothing saved: no control process is started and no notice shown. One with no session and no live terminal is forgotten.

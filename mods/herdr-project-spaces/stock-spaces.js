@@ -1,6 +1,6 @@
 // A modified copy of Herdr 0.1.16's generated mods/spaces/main.js, Apache-2.0 (see NOTICE and LICENSE-APACHE in this mod's repository); the unchanged file is vendor/spaces-0.1.16.js there.
 // Original SHA-256: 8f7111eb3a7c055bb04bd81b88f90b581e4d4a85f512eb87d3f5d15f1073f8bd
-// Local changes: this version constant and optional row-leading/trailing, row-drop (a row that is no space, dropped on one) and rebuilt-machine snapshot hooks only.
+// Local changes: this version constant, a stable id on the list, and optional row-leading/trailing, row-drop (a row that is no space, dropped on one) and rebuilt-machine snapshot hooks only.
 export const STOCK_VERSION = "0.1.16";
 // Workspace spaces: stable colored avatars, worktrees under their checkout,
 // grouped by machine when more than one is known. After a space's name, the repo
@@ -551,7 +551,7 @@ export default class Spaces extends View {
         .when(!collapsed, el => el.child("Spaces"))
         .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).hover(s => s.bg(t.hover).text_color(t.foreground))
           .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))
-      .child(v_flex().flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).overflow_y_scrollbar().mode("always").track_scroll(this.scroll)
+      .child(v_flex().id("space-list").flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).overflow_y_scrollbar().mode("always").track_scroll(this.scroll)
         // A block above (another mod's) growing, or the window resizing, shrinks this list and can push the active space out.
         .on_size_change((_size, cx) => { if (this.activeAt >= 0) { this.scroll.scroll_to_item(this.activeAt); cx.notify(); } })
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })

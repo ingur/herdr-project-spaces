@@ -16,9 +16,9 @@ test("the vendored Spaces is the recorded stock file; the mod's copy differs fro
     assert.ok(patched.includes(`this.${hook}?.(`), `stock no longer calls ${hook}`);
     assert.match(tree, new RegExp(`^  ${hook}\\(`, "m"), `the tree no longer defines ${hook}`);
   }
-  // 4 header lines, and 8 where a hook is called: anything more is an edit that a re-vendor would lose.
+  // 4 header lines, 8 where a hook is called, 1 that names the list: anything more is an edit that a re-vendor would lose.
   const original = new Set(stock.split("\n"));
-  assert.equal(patched.split("\n").filter(line => !original.has(line)).length, 12);
+  assert.equal(patched.split("\n").filter(line => !original.has(line)).length, 13);
 });
 
 test("the tree uses no name Herdr's Spaces code already uses, for state or a method, beyond what it overrides on purpose", async () => {
