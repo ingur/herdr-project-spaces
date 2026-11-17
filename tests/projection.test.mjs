@@ -337,16 +337,19 @@ test("a terminal started for a session is never listed as a shell of its own whi
   assert.equal(row.groups.length, 1);
 });
 
-test("a terminal control started is never a row of its own; a shell the user started is", () => {
+test("a terminal control started, or a shell hc put in a session's place, is never a row of its own; a shell the user is in is", () => {
   const spaces = [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "1", named: false, panes: 1 }] }];
   const stopped = { id: "x", coordinator: "x", role: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
-  const entries = (agents, labels) => projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents, sessions: [stopped],
-    terminals: [{ address: "t9", argv: ["zsh"], labels }] })[0].entries;
+  const entries = (agents, labels, pid = 42) => projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents, sessions: [stopped],
+    terminals: [{ address: "t9", argv: ["zsh"], labels, pid, status: null, foreground: { pid } }] })[0].entries;
   const left = { "projects.session": "x", "projects.launched": "1" };
   assert.deepEqual(entries([], left), [], "the shell Herdr brought back in the session's tab stands for the session");
   assert.deepEqual(entries([{ address: "t9", tab: "tab", program: { name: "pi", agent: true }, status: "idle" }], left), [], "nor while its agent reports before the list says whose it is");
   assert.deepEqual(entries([], { "projects.session": "new", "projects.launched": "1" }), [], "nor for a session the list does not know yet");
   assert.deepEqual(entries([], { "projects.session": "x" }).map(entry => entry.title), ["zsh"], "a shell the user started is theirs");
+  const waiting = { "projects.session": "x", "projects.pid": "@41" };
+  assert.deepEqual(entries([], waiting), [], "the shell hc put where the user's own terminal held the session stands for the session too");
+  assert.deepEqual(entries([], waiting, 41).map(entry => entry.title), ["zsh"], "the shell the user quit the agent in is theirs");
 });
 
 test("a session's terminal is no row of its own while its control has not answered", () => {

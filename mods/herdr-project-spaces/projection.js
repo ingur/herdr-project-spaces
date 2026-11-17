@@ -6,6 +6,12 @@ export const ownsTerminal = session => session.available === true && session.sta
 export const spaceKey = id => `space:${id}`;
 export const projectKey = key => `project:${key}`;
 
+// CONTRACT.md's "empty shell that hc put in place of the program that ran there".
+function standIn(terminal) {
+  const program = Number((terminal?.labels?.["projects.pid"] ?? "").split("@")[1]);
+  return program > 0 && program !== terminal.pid && !terminal.status && terminal.foreground?.pid === terminal.pid;
+}
+
 // Higher rank first, everywhere. The sort is stable: equal ranks keep the order they arrived in.
 const byRank = (a, b) => b.rank - a.rank;
 // An independent row's rank: where someone dragged it (the hc label projects.rank), else when its terminal was made.
@@ -89,10 +95,11 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   function independent(pane, agent) {
     const terminal = agent?.address ?? pane?.terminal;
     if (terminal && seen.has(terminal)) return;
-    // A terminal control started is its session's, never a row of its own: the label arrives with the
-    // terminal, before control's list says whose it is. A shell the user started is theirs.
+    // A terminal control started, or the shell hc put in a session's place, is its session's, never a
+    // row of its own: the label arrives with the terminal, before control's list says whose it is.
+    // A shell the user is still in is theirs.
     const labels = byAddress.get(terminal)?.labels;
-    if (labels?.["projects.launched"]) return;
+    if (labels?.["projects.launched"] || standIn(byAddress.get(terminal))) return;
     // Until the backend its label names answers, any session's terminal is that session's: its row stands for it, dim.
     const advertised = labels?.["projects.session"] && discoverEndpoints([byAddress.get(terminal)]).endpoints[0];
     if (advertised && unanswered.has(endpointKey(advertised))) return;
