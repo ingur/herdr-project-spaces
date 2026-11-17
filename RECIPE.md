@@ -49,12 +49,10 @@ The block Spaces was in, top to bottom, everything in the user's theme colors:
   - `backends.js`: the control descriptor, discovery, the saved snapshot, the check before every command.
   - `actions.js`: the session menu's items and the delete dialog's text; one session action, the same from the tree and an overlay (`act`): what it shows changing on its rows, control, then Herdr's tab and pane commands on the terminal control named.
   - `session-overlays.js`: the menu and the two dialogs.
-- **The `projects.control` contract**, the mod's whole link to the program that owns the sessions:
-  - A session's terminal carries the hc label `projects.control`, JSON `{ "version": 2, "command": ["/absolute/program", "more", "argv"], "stateDir": "/absolute/folder" }`. Only labels of terminals whose `state` is `live` count. The machine is taken from the terminal's address (`vps/t7`), never from the label.
+- **The link to herdr-projects**: the mod is a client in the sense of its [CONTRACT.md](https://github.com/ingur/herdr-projects/blob/main/CONTRACT.md), which says what a session's view holds and what each action does. The mod uses `list`, `open`, `create-thread`, `rename`, `order`, `place`, `close`, `resolve` and `delete`. Its own part is how it reaches core:
+  - A session's terminal carries the hc label `projects.control`. Only labels of terminals whose `state` is `live` count. The machine is taken from the terminal's address (`vps/t7`), never from the label.
   - An endpoint is a machine and `stateDir`. Its command is the one its live terminals advertise; with none live, the one saved with the last snapshot.
-  - Every call is `exec(command[0], [...rest, action, JSON], { on: machine })`, the JSON always carrying `stateDir`; the answer is one JSON object on stdout, a failure is a nonzero exit with the reason on stderr.
-  - `list` → `{ sessions, errors? }`. A session: `id`, `coordinator` (its own id for a project), `role` (`coordinator` or `thread`), `title`, `cwd` (absolute), `rank` (a number; higher shows first), `resolved`, `state` (`running`, `starting` or `stopped`), `status` (hc's word, while running), `waiting` (messages held until it runs), and `space`, `tab`, `terminal` (ids as its own machine knows them; `terminal` only while running or starting).
-  - With `{ id }`: `open` (`space?`; answers the session once its terminal exists, else with `error`), `rename` (`title`), `order` (`rank`), `place` (`space`), `close`, `resolve`, each answering the session; `create-thread` takes `{ coordinator, title? }` and answers the new thread; `delete` answers `{ deleted: [ids] }`. `create-thread`, `rename` and `resolve` carry `by: "user"`: every action here is the user's.
+  - Every call is `exec(command[0], [...rest, action, JSON], { on: machine })`, the JSON always carrying `stateDir`.
 - **Programs it runs**: the advertised control command (above), on the machine of the terminal that advertised it; `hc machine ls --json` and `hc label <terminal> --json projects.rank=<n>` through `hc()`; and Herdr's Spaces part runs `git rev-parse`, `symbolic-ref` and `rev-list` in the spaces' folders and `hc machine ls|rm|add`. It reaches no network and reads no file; the Spaces part watches the spaces' git folders for changes.
 - **From `herdr`**: `spaces`, `panes`, `agents`, `terminals`, `machines`, `theme`, `props`, `shared`/`setShared`, `nextCommand`, `openOverlay`/`closeOverlay`, `notify`, `run`, `exec`, `hc`, `updates`; in the Spaces part also `watchFolder`, `window`, `layout`. Commands run: `tab.new`, `tab.rename`, `tab.select`, `pane.focus`, `agent.focus`, `space.next`, `space.prev`; the Spaces part: `space.select`, `space.move`, `space.new`, `app.settings`.
 - **Shipped mods used**: `workspace-chrome` for every icon except the mod's own `trash.svg` (`chevron-right`, `chevron-down`, `plus`, `archive`, `folder`, `terminal`, `spinner`, `square-pen`, `x`, `check`, and Spaces' own `server`, `monitor`, `branch`); `menu` for the pane and space menus.
@@ -74,7 +72,7 @@ The block Spaces was in, top to bottom, everything in the user's theme colors:
 - An update of several files reloads the mod at each one; Herdr keeps the old build running until the set loads again.
 - Folds and resolved views are per copy of the mod, and a copy is told apart by its props: giving the block props starts them empty.
 - Tab names are followed only for tabs of one pane. A project changes space only by its own row, only within its machine, only while stopped. A thread never leaves its project.
-- The tab name sync stands in for an upstream route, Pi letting an extension set its terminal's title or Herdr naming a tab from a terminal label; either would replace it.
+- The tab name sync stands in for an upstream route: Herdr naming a tab from a terminal's title or label would replace it.
 
 ## Done when
 

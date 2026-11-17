@@ -43,7 +43,6 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
     return io.exec(...args);
   };
   const options = action === "create-thread" ? { ...extra, coordinator: record.id } : { ...extra, id: record.id };
-  if (["create-thread", "rename", "resolve"].includes(action)) options.by = "user";
   if (action === "delete") {
     const result = await invoke(endpoint, action, options, execute);
     if (!Array.isArray(result.deleted) || !result.deleted.includes(record.id)) throw new Error("Control did not confirm the deletion.");

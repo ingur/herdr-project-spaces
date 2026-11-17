@@ -9,7 +9,7 @@ const sameCommand = (a, b) => JSON.stringify(a.command) === JSON.stringify(b.com
 const conflictText = endpoint => `Two running terminals advertise different projects.control commands on ${endpoint.machine ?? "this computer"} for ${endpoint.stateDir}; nothing runs there until one of them is closed.`;
 const cached = storage => JSON.parse(storage.getItem("projects.backends") || "[]");
 
-// This mod's whole link to the projects extension: the descriptor a session's terminal carries as
+// This mod's whole link to herdr-projects: the descriptor a session's terminal carries as
 // its `projects.control` label (version 2: argv and state directory), and control's actions.
 export function endpointDescriptor(value, machine = null) {
   if (!value || value.version !== 2 || !absolute(value.stateDir) || !Array.isArray(value.command) || !absolute(value.command[0]) || value.command.some(arg => typeof arg !== "string" || /[\x00-\x1f\x7f]/.test(arg))) throw new Error("Invalid projects.control descriptor: version 2, an absolute executable/state directory, and printable argv required.");

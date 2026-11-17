@@ -26,7 +26,7 @@ test("project plus creates an unnamed child, which comes with its terminal, then
   const { io, calls, commands } = harness(() => child);
   await performSessionAction(endpoint, "create-thread", record, {}, io);
   assert.deepEqual(calls.map(call => call.action), ["create-thread"]);
-  assert.deepEqual(calls[0].input, { coordinator: "project", by: "user", stateDir: "/state" });
+  assert.deepEqual(calls[0].input, { coordinator: "project", stateDir: "/state" });
   assert.ok(calls.every(call => call.options.on === "buildbox"));
   assert.deepEqual(commands, [["tab.rename", { id: "buildbox/tab2", name: "New thread" }], ["tab.select", { id: "buildbox/tab2" }], ["pane.focus", { pane: "buildbox/p2" }]]);
 });
@@ -65,7 +65,7 @@ test("rename updates only a verified current terminal's tab", async () => {
 test("a rename goes through control as the user's; failure leaves the user's tab untouched", async () => {
   const saved = harness(() => ({ ...child, title: "User name" }));
   await performSessionAction(endpoint, "rename", child, { title: "User name" }, saved.io);
-  assert.deepEqual(saved.calls[0].input, { title: "User name", id: "thread", by: "user", stateDir: "/state" });
+  assert.deepEqual(saved.calls[0].input, { title: "User name", id: "thread", stateDir: "/state" });
   const failed = harness(() => { throw new Error("Rename refused"); });
   await assert.rejects(performSessionAction(endpoint, "rename", child, { title: "User name" }, failed.io), /Rename refused/);
   assert.deepEqual(failed.commands, []);
