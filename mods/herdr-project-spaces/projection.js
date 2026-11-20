@@ -6,12 +6,6 @@ export const ownsTerminal = session => session.available === true && session.sta
 export const spaceKey = id => `space:${id}`;
 export const projectKey = key => `project:${key}`;
 
-// CONTRACT.md's "empty shell that hc put in place of the program that ran there".
-function standIn(terminal) {
-  const program = Number((terminal?.labels?.["projects.pid"] ?? "").split("@")[1]);
-  return program > 0 && program !== terminal.pid && !terminal.status && terminal.foreground?.pid === terminal.pid;
-}
-
 // Higher rank first, everywhere. The sort is stable: equal ranks keep the order they arrived in.
 const byRank = (a, b) => b.rank - a.rank;
 // An independent row's rank: where someone dragged it (the hc label projects.rank), else when its terminal was made.
@@ -21,10 +15,11 @@ function terminalRank(terminal) {
 }
 
 // Registry identity owns the tree; current native pane placement owns navigation.
-// `showResolved`: the resolved views that are on, a project's key for its threads and a space's for its projects.
+// `showResolved`: the resolved views that are on, a project's key for its threads and a space's for its
+// resolved projects and sessions.
 // `ready`: this computer's spaces are all read, so one of its own that is not among them is gone, not loading.
-export function projectSpaces({ spaces, panes, agents, sessions, terminals = [], showResolved = new Set(), ready = true }) {
-  const spaceRow = (space, missing) => ({ key: space.id, space, groups: [], entries: [], missing, resolvedCount: 0 });
+export function projectSpaces({ spaces, panes, agents, sessions, terminals = [], showResolved = new Set(), records = {}, ready = true }) {
+  const spaceRow = (space, missing) => ({ key: space.id, space, groups: [], entries: [], missing, archived: 0 });
   const result = spaces.map(space => spaceRow(space, false));
   const bySpace = new Map(result.map(row => [row.key, row]));
   const byTab = new Map();
@@ -44,11 +39,14 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
     const current = live && (byTab.get(pane?.tab ?? agent?.tab) ?? byTab.get(session.native.tab));
     if (current) return { ...current.row.space, tab: current.tab.id };
     const machine = session.endpoint.machine;
-    // Only a fully read local layout can prove a space is gone.
-    if (!machine && ready && !bySpace.has(session.native.space)) return null;
+    // Only a fully read local layout can prove a space is gone: Herdr closed it. It keeps the name it
+    // was last seen with, else that of its first session's folder.
+    const closed = !machine && ready;
+    if (closed && !session.native.space) return null;
     const id = session.native.space || qualify(machine, `unplaced:${endpointKey(session.endpoint)}`);
     if (!bySpace.has(id)) {
-      const row = spaceRow({ id, name: session.space ? "Unavailable space" : "Unplaced sessions", machine, tabs: [] }, true);
+      const name = closed ? records[id]?.name ?? (session.folder.split("/").pop() || "/") : session.space ? "Unavailable space" : "Unplaced sessions";
+      const row = spaceRow({ id, name, machine, tabs: [], closed }, true);
       bySpace.set(id, row);
       result.push(row);
     }
@@ -63,25 +61,37 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
       status: agent?.status ?? pane?.status ?? null, focused: !!(agent?.focused || pane?.focused), terminal, agent: !!agent, pane: pane?.pane, tab: pane?.tab ?? agent?.tab };
   }
 
+  function archived(row) {
+    if (row.space.closed) return false;
+    row.archived++;
+    return showResolved.has(spaceKey(row.key));
+  }
+
+  // A session outside a project is a row of its space, among the space's other terminals.
+  function plain(session) {
+    const home = placement(session), row = home && bySpace.get(home.id);
+    if (row && (!session.resolved || archived(row))) row.entries.push(sessionRow(session, home));
+  }
+
   const groups = new Map();
   for (const session of sessions) {
-    const key = sessionKey({ ...session, id: session.coordinator }), coordinator = registered.get(key);
-    if (session.deleted || (!coordinator && !ownsTerminal(session))) continue;
+    if (session.deleted) continue;
+    if (session.kind === "plain") { plain(session); continue; }
+    const key = sessionKey({ ...session, id: session.project }), coordinator = registered.get(key);
+    if (!coordinator && !ownsTerminal(session)) continue;
     if (!groups.has(key)) {
       const home = placement(coordinator ?? session);
       if (!home) continue;
       const row = bySpace.get(home.id);
       const group = { key, rank: coordinator?.rank ?? 0, coordinator: coordinator ? sessionRow(coordinator, home) : null,
-        title: coordinator?.title || `Unavailable project (${String(session.coordinator).slice(0, 8)})`, children: [], resolvedCount: 0 };
-      // A resolved project is listed, and its threads with it, only while its space shows them.
-      const listed = !coordinator?.resolved || showResolved.has(spaceKey(row.key));
-      if (coordinator?.resolved) row.resolvedCount++;
+        title: coordinator?.title || `Unavailable project (${String(session.project).slice(0, 8)})`, children: [], archived: 0 };
+      const listed = !coordinator?.resolved || archived(row);
       if (listed) row.groups.push(group);
       groups.set(key, { group, row, listed });
     }
     const { group, row, listed } = groups.get(key);
-    const thread = session.role === "thread" ? sessionRow(session, ownsTerminal(session) ? placement(session) : row.space) : null;
-    if (thread && session.resolved) group.resolvedCount++;
+    const thread = session.kind === "thread" ? sessionRow(session, ownsTerminal(session) ? placement(session) : row.space) : null;
+    if (thread && session.resolved) group.archived++;
     const shown = listed && (!thread || !session.resolved || showResolved.has(key));
     if (thread && shown) group.children.push(thread);
     // The focused session is not listed: `reveal` is the resolved view that would list it.
@@ -95,11 +105,10 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   function independent(pane, agent) {
     const terminal = agent?.address ?? pane?.terminal;
     if (terminal && seen.has(terminal)) return;
-    // A terminal control started, or the shell hc put in a session's place, is its session's, never a
-    // row of its own: the label arrives with the terminal, before control's list says whose it is.
-    // A shell the user is still in is theirs.
+    // A terminal control started is its session's, never a row of its own: the label arrives with the
+    // terminal, before control's list says whose it is.
     const labels = byAddress.get(terminal)?.labels;
-    if (labels?.["projects.launched"] || standIn(byAddress.get(terminal))) return;
+    if (labels?.["projects.launched"]) return;
     // Until the backend its label names answers, any session's terminal is that session's: its row stands for it, dim.
     const advertised = labels?.["projects.session"] && discoverEndpoints([byAddress.get(terminal)]).endpoints[0];
     if (advertised && unanswered.has(endpointKey(advertised))) return;
@@ -120,15 +129,27 @@ export function projectSpaces({ spaces, panes, agents, sessions, terminals = [],
   for (const pane of panes) independent(pane, byAgent.get(pane.terminal));
   for (const agent of agents) independent(byTerminal.get(agent.address), agent);
   // A stand-in shows for what is listed under it. A thread whose own space is gone needs none: it is under its project.
-  return result.filter(row => !row.missing || row.groups.length || row.entries.length || row.resolvedCount);
+  return result.filter(row => !row.missing || row.groups.length || row.entries.length || row.archived);
 }
 
 const URGENT = ["blocked", "done", "working"];
 // Herdr's own ranking; idle rows and absent heads (null) say nothing.
 export const urgentStatus = rows => URGENT.find(status => rows.some(row => row?.status === status)) ?? null;
 
-// What shows right under a space, in display order: its projects (they have `children`) mixed with its independent rows.
+// What shows right under a space, in display order: its projects (they have `children`) mixed with its
+// sessions outside a project (they have `session`) and its independent rows.
 export const spaceItems = row => [...row.groups, ...row.entries].sort(byRank);
+
+export function spaceRecords(rows, records) {
+  const running = rows.flatMap(spaceRows).filter(row => row?.session && row.live);
+  const record = row => row.space.closed ? records[row.key] && { ...records[row.key], closed: true }
+    : { name: row.space.name, running: running.filter(session => session.placement.id === row.key).map(session => session.key) };
+  return Object.fromEntries(rows.filter(row => !row.space.machine).map(row => [row.key, record(row)]).filter(([, kept]) => kept));
+}
+
+export const reopening = (row, record) => spaceRows(row).filter(item => item?.session && record?.running.includes(item.key));
+
+export const spaceSessions = row => spaceItems(row).map(item => (item.coordinator ?? item).session).filter(Boolean);
 
 // What a folded space hides, in display order; null is an unavailable project's head.
 export const spaceRows = row => spaceItems(row).flatMap(item => item.children ? [item.coordinator, ...item.children] : [item]);
@@ -202,12 +223,12 @@ export function resolvedToggle(rows, selected) {
 }
 
 // The rows a drag of the row keyed `key` may land among, in display order: a thread's fellow threads
-// of the same resolved state, or a project's or independent row's own space. Never another project,
-// space or machine. Null: a row with nowhere to keep a rank (no session, no terminal), or none.
+// of the same resolved state, or the own space of a project, a session outside a project or an independent row.
+// Never another project, space or machine. Null: a row with nowhere to keep a rank (no session, no terminal), or none.
 function siblings(rows, key) {
   for (const row of rows) {
     const items = spaceItems(row), item = items.find(item => item.key === key);
-    if (item) return item.coordinator || item.terminal ? items : null;
+    if (item) return item.coordinator || item.session || item.terminal ? items : null;
     for (const group of row.groups) {
       const thread = group.children.find(child => child.key === key);
       if (thread) return group.children.filter(child => child.session.resolved === thread.session.resolved);
@@ -233,14 +254,14 @@ export function moveRank(rows, key, direction) {
   return over ? dropRank(rows, key, over.key).rank : null;
 }
 
-// The project a drag of the row keyed `from` onto the space `to` would set down there, by its head
-// row: the caller refuses one that runs, which is where its terminal is. Null for any other drag:
-// only a project moves, by its head, and only to another space of its own machine. Its threads
-// follow as they are opened (`openSpace`); an independent row is where its terminal is.
+// The session a drag of the row keyed `from` onto the space `to` would set down there: a project, by
+// its head row, or a session outside a project. The caller refuses one that runs, which is where its
+// terminal is. Null for any other drag, and for another machine's space. A project's threads follow
+// as they are opened (`openSpace`); an independent row is where its terminal is.
 export function spaceDrop(rows, from, to) {
   const target = rows.find(row => row.key === to && !row.missing);
-  const head = rows.filter(row => row !== target).flatMap(row => row.groups).find(group => group.coordinator?.key === from)?.coordinator;
-  return target && head && (head.session.endpoint.machine ?? null) === (target.space.machine ?? null) ? head : null;
+  const moved = rows.filter(row => row !== target).flatMap(row => [...row.groups.map(group => group.coordinator), ...row.entries.filter(entry => entry.session)]).find(row => row?.key === from);
+  return target && moved && (moved.session.endpoint.machine ?? null) === (target.space.machine ?? null) ? moved : null;
 }
 
 // What `open` is told of where to open the session keyed `key`: control's `space`, an id as the
@@ -260,20 +281,23 @@ export function openSpace(rows, key) {
 
 // A session row's hover line: its folder, then only what the row cannot show. Dim says neither which
 // of resolved, stopped or out of reach it is, nor which other space a running terminal is in (a
-// stopped thread opens with its project, wherever it last ran), nor that messages wait for it.
-const waiting = session => session.state === "stopped" && session.waiting > 0 && `${session.waiting} message${session.waiting > 1 ? "s" : ""} waiting`;
-export const sessionDetail = (row, space) => [row.session.cwd, row.session.resolved && "resolved",
+// stopped thread opens with its project, wherever it last ran); the mail count says not what it counts.
+const waiting = session => session.waiting > 0 && `${session.waiting} message${session.waiting > 1 ? "s" : ""} waiting`;
+export const sessionDetail = (row, space) => [row.session.folder, row.session.resolved && "resolved",
   row.session.available === false ? "unavailable" : !row.live && "stopped", waiting(row.session),
   row.live && row.placement.id !== space.id && `in ${row.placement.name}`].filter(Boolean).join(" · ");
 
 // Single-pane tabs and their sessions follow whichever title changed. Keep the last observed session
 // title separate from the tab's so a pending or failed control rename never restores the old name.
 // `applied` holds that state per session and the title given per tab (for a split left behind).
+// Until every backend answers and sees hc, a session may only look gone: name nothing, forget nothing.
+export const settled = sessions => sessions.every(session => session.available === true && !session.error);
+
 export function tabRenames(sessions, panes, tabs, applied) {
-  // Until every backend answers and sees hc, a tab's session may only look gone: name nothing, forget nothing.
-  if (sessions.some(session => session.available !== true || session.error)) return [];
+  if (!settled(sessions)) return [];
   const renames = [], held = new Set();
-  for (const session of sessions.filter(ownsTerminal)) {
+  // A placeholder is no title to show: the tab keeps its own name until the session has one.
+  for (const session of sessions.filter(session => ownsTerminal(session) && session.titleSource !== "placeholder")) {
     const pane = panes.find(pane => pane.terminal === session.native.terminal);
     const tab = pane && tabs.find(tab => tab.id === pane.tab);
     if (!tab) continue;

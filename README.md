@@ -1,15 +1,17 @@
 # herdr-project-spaces
 
-A [herdr](https://herdr.dev) sidebar that shows [herdr-projects](https://github.com/ingur/herdr-projects) under each space: projects, their threads, agents and shells.
+A [herdr](https://herdr.dev) sidebar that shows [herdr-projects](https://github.com/ingur/herdr-projects) under each space: projects, their threads, sessions, agents and shells.
 
 ![herdr-project-spaces](preview.png)
 
 It is a copy of herdr's own Spaces panel. What it changes there:
 
-- each space lists its projects, their threads, and its other agents and shells under it;
+- each space lists its projects, their threads, its sessions outside a project and its other agents and shells under it;
 - a space row gets a fold arrow in front and, behind, the status of what a fold hides and, on hover, an archive button and a `+` for a new terminal;
 - the filled row is the focused terminal's row, not the active space;
-- dropping a project on a space moves the project there;
+- dropping a stopped project or session on a space moves it there;
+- a session with messages waiting shows their number;
+- a space herdr closed stays listed, grey, while it holds unresolved sessions, and opens again with the ones that ran in it;
 - a space that cannot be read keeps its projects under a dim row (a folder cell in the narrow rail).
 
 ## Install
@@ -33,11 +35,11 @@ node herdr-project-spaces/install.mjs
 
 | | |
 | --- | --- |
-| Click a row | open it |
+| Click a row | open it; a closed space opens with the sessions that ran in it |
 | `+` on a project | new thread |
-| Right-click | rename, close, resolve, delete |
+| Right-click | rename, move folder, close, resolve, delete; on a closed space, remove it |
 | Archive icon (on hover) | show or hide resolved ones |
-| Drag | reorder; drag a stopped project onto another space to move it |
+| Drag | reorder; drag a stopped project or session onto another space to move it |
 
 Keys (macOS uses `cmd` instead of `alt`):
 

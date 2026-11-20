@@ -2,10 +2,10 @@ import { div } from "gpui-kit";
 import { Button, Input, InputState, h_flex, v_flex } from "gpui-base";
 import { closeOverlay, notify, theme } from "herdr";
 import { currentSession, errorText, savedSessions } from "./backends.js";
-import { act, deletion, sessionMenu } from "./actions.js";
+import { act, deletion, sessionMenu, sessionWord } from "./actions.js";
 import { actionIO, backendStorage, icon, openDialog, reportError } from "./tree.js";
 
-export class SessionMenu {
+class Menu {
   init(options, cx) {
     this.options = options;
     this.at = 0;
@@ -15,24 +15,14 @@ export class SessionMenu {
 
   close() { this.closed = true; }
 
-  // Props hold the session as its row knew it when clicked; the tree's snapshot is newer.
-  session() { return currentSession(this.options.session, backendStorage); }
-
   choose(index, cx) {
-    if (this.busy) return;
-    const session = this.session(), item = sessionMenu(session)[index];
-    if (!item) return;
-    if (item.action === "rename" || item.action === "delete") {
-      closeOverlay(this.options.overlay);
-      openDialog(item.action, session);
-      return;
-    }
+    const item = this.list()[index];
+    if (this.busy || !item) return;
     this.busy = true;
     cx.notify();
     cx.spawn(async cx => {
       try {
-        // shortcut: where a stopped session opens was decided as this menu opened; decide here if menus ever stay open long.
-        await act(item.action, session, item.action === "open" ? this.options.open : {}, actionIO(cx, this));
+        await this.run(item, cx);
         closeOverlay(this.options.overlay);
       } catch (error) { reportError(error); }
       finally { this.busy = false; if (!this.closed) cx.notify(); }
@@ -40,7 +30,7 @@ export class SessionMenu {
   }
 
   render() {
-    const t = theme(), list = sessionMenu(this.session()), ends = list.findIndex(item => ["close", "resolve", "delete"].includes(item.action));
+    const t = theme(), list = this.list(), ends = list.findIndex(item => ["close", "resolve", "delete"].includes(item.action));
     return v_flex().id("session-menu").track_focus(this.handle).w_full().min_h(0).p(5).bg(t.popover).text_size(12.8)
       .on_key_down((e, cx) => {
         if (e.key === "escape") closeOverlay(this.options.overlay);
@@ -62,6 +52,31 @@ export class SessionMenu {
 
 // What the dialogs share with stock's prompt and confirm: a title beside the Esc hint, then Cancel
 // beside the one action (`dialog.submit`), which is `solid` in stock's confirm too: Herdr has no red button.
+export class SessionMenu extends Menu {
+  // Props hold the session as its row knew it when clicked; the tree's snapshot is newer.
+  session() { return currentSession(this.options.session, backendStorage); }
+
+  list() { return sessionMenu(this.session()); }
+
+  choose(index, cx) {
+    const item = this.list()[index];
+    if (this.busy || !["rename", "move", "delete"].includes(item?.action)) return super.choose(index, cx);
+    closeOverlay(this.options.overlay);
+    openDialog(item.action, this.session());
+  }
+
+  // shortcut: where a stopped session opens was decided as this menu opened; decide here if menus ever stay open long.
+  run(item, cx) { return act(item.action, this.session(), item.action === "open" ? this.options.open : {}, actionIO(cx, this)); }
+}
+
+export class SpaceMenu extends Menu {
+  list() { return [{ title: "Remove space", action: "resolve", icon: "check" }]; }
+
+  async run(item, cx) {
+    for (const session of this.options.sessions) await act(item.action, currentSession(session, backendStorage), {}, actionIO(cx, this));
+  }
+}
+
 const heading = (t, text) => h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child(text))
   .child(div().text_size(11).text_color(t.dim).child("Esc"));
 function buttons(t, dialog, label) {
@@ -74,12 +89,15 @@ function buttons(t, dialog, label) {
     .child(button("dialog-submit", label, true, cx => dialog.submit(cx)));
 }
 
-// Names a session, drawn as stock's prompt: a new thread under the project in props (role "new-thread"), else a rename.
-export class NameSession {
+// Asks for one line about a session, drawn as stock's prompt: the name of a new thread under the project
+// in props (role "new-thread"), a session's new name (role "rename"), or the folder a stopped session's
+// folder was moved to (role "move").
+export class SessionLine {
   init(options, cx) {
     this.options = options;
     this.create = options.role === "new-thread";
-    const value = this.create ? "" : options.session.title;
+    this.move = options.role === "move";
+    const value = this.create ? "" : this.move ? options.session.folder : options.session.title;
     this.input = InputState.new(this.create ? { placeholder: "Optional" } : { value });
     this.input.set_selected_range({ start: 0, end: value.length });
     this.input.on("submit", (_e, cx) => this.submit(cx));
@@ -95,14 +113,16 @@ export class NameSession {
 
   submit(cx) {
     if (this.busy) return;
-    const title = this.input.value().trim(), session = this.options.session;
-    if (/[\x00-\x1f\x7f]/.test(title) || (!title && !this.create)) { this.error = this.create ? "Enter a printable name, or none." : "Enter a nonempty, printable name."; cx.notify(); return; }
+    const line = this.input.value().trim(), session = this.options.session;
+    if (this.move && !line.startsWith("/")) { this.error = "Enter the folder's full path."; cx.notify(); return; }
+    if (/[\x00-\x1f\x7f]/.test(line) || (!line && !this.create)) { this.error = this.create ? "Enter a printable name, or none." : "Enter a nonempty, printable name."; cx.notify(); return; }
     this.busy = true;
     this.error = null;
     cx.notify();
     cx.spawn(async cx => {
       try {
-        const result = await act(this.create ? "create-thread" : "rename", session, title ? { title } : {}, actionIO(cx, this));
+        const result = this.move ? await act("move", session, { folder: line }, actionIO(cx, this))
+          : await act(this.create ? "create-thread" : "rename", session, line ? { title: line } : {}, actionIO(cx, this));
         closeOverlay(this.options.overlay);
         if (result.focusError) notify({ title: `Thread "${result.title}" created`, body: `Click its row to open it; do not create another thread to retry. ${result.focusError}`, level: "info" });
       } catch (error) { this.error = errorText(error); }
@@ -112,15 +132,15 @@ export class NameSession {
 
   render() {
     const t = theme();
-    const title = this.create ? "New thread" : this.options.session.role === "thread" ? "Rename thread" : "Rename project";
+    const title = this.create ? "New thread" : `${this.move ? "Move folder of" : "Rename"} ${sessionWord(this.options.session)}`;
     const save = this.create ? (this.busy ? "Creating…" : "Create") : this.busy ? "Saving…" : "Save";
     // In the place of stock's hint ("empty: its number"): what went wrong, else what an empty name does.
-    const note = this.error || (this.create && "empty: it names itself");
-    return v_flex().id("name-session").track_focus(this.handle).w_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground)
+    const note = this.error || (this.create && "empty: it names itself") || (this.move && "where the folder is now; nothing is moved");
+    return v_flex().id("session-line").track_focus(this.handle).w_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground)
       .on_key_down((e, cx) => { if (e.key === "escape") { closeOverlay(this.options.overlay); cx.stop_propagation(); } })
       .child(heading(t, title))
-      .child(div().pt(16).pb(7).text_size(11.5).text_color(t.dim).child("Name"))
-      .child(Input.new(this.input).h(36).px(10).rounded(9).border_1().border_color(this.focused ? t.accent : t.input).bg(t.background).text_size(12.8).text_color(t.foreground).accessibility_label("Session name"))
+      .child(div().pt(16).pb(7).text_size(11.5).text_color(t.dim).child(this.move ? "Folder" : "Name"))
+      .child(Input.new(this.input).h(36).px(10).rounded(9).border_1().border_color(this.focused ? t.accent : t.input).bg(t.background).text_size(12.8).text_color(t.foreground).accessibility_label(this.move ? "Session folder" : "Session name"))
       .when(!!note, el => el.child(div().pt(6).text_size(11.5).text_color(this.error ? t.blocked : t.dim).child(note)))
       .child(buttons(t, this, save).pt(20).text_size(12.5).font_medium());
   }

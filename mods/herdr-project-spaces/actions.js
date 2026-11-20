@@ -1,17 +1,19 @@
 import { errorText, invoke, qualify, sessionRecord } from "./backends.js";
 import { sessionKey } from "./projection.js";
 
-const kind = session => session.role === "thread" ? "thread" : "project";
-const threadsOf = (session, records) => records.filter(record => record.role === "thread" && record.coordinator === session.id);
+export const sessionWord = session => ({ plain: "session", coordinator: "project", thread: "thread" })[session.kind];
+const threadsOf = (session, records) => records.filter(record => record.kind === "thread" && record.project === session.id);
 
-// No Reopen: the user's next prompt in a resolved project or thread reopens it. What ends something
-// comes last, as stock's Close: the menu draws its one line above the first of Close, Resolve and Delete.
+// No Reopen: the user's next prompt in a resolved session reopens it. Move folder shows
+// while the session is stopped, the only time control takes it.
+// What ends something comes last, as stock's Close: the menu draws its one line above the first of Close, Resolve and Delete.
 export const sessionMenu = session => [
-  { title: `Rename ${kind(session)}`, action: "rename", icon: "square-pen" },
+  { title: `Rename ${sessionWord(session)}`, action: "rename", icon: "square-pen" },
   { title: "Open terminal", action: "open", icon: "terminal" },
-  ...(session.available !== false && session.state !== "stopped" ? [{ title: `Close ${kind(session)}`, action: "close", icon: "x" }] : []),
-  ...(!session.resolved ? [{ title: `Resolve ${kind(session)}`, action: "resolve", icon: "check" }] : []),
-  { title: `Delete ${kind(session)}`, action: "delete", icon: "trash" },
+  ...(session.state === "stopped" ? [{ title: "Move folder…", action: "move", icon: "folder" }] : []),
+  ...(session.available !== false && session.state !== "stopped" ? [{ title: `Close ${sessionWord(session)}`, action: "close", icon: "x" }] : []),
+  ...(!session.resolved ? [{ title: `Resolve ${sessionWord(session)}`, action: "resolve", icon: "check" }] : []),
+  { title: `Delete ${sessionWord(session)}`, action: "delete", icon: "trash" },
 ];
 
 // What the delete dialog says goes with `session`. `records` are its backend's sessions: every
@@ -19,7 +21,7 @@ export const sessionMenu = session => [
 export function deletion(session, records) {
   const threads = threadsOf(session, records).length;
   return {
-    title: `Delete ${kind(session)}?`,
+    title: `Delete ${sessionWord(session)}?`,
     // As stock's "Close space?": the name, then what goes with it.
     detail: `${session.title} — ${threads ? `${threads} thread${threads > 1 ? "s" : ""} and all conversations` : "its conversation and messages"}`,
     kept: "Files in your repository stay.",
@@ -28,7 +30,7 @@ export function deletion(session, records) {
 
 function checkedResult(result, previous, allowNew = false) {
   sessionRecord(result);
-  if ((!allowNew && result.id !== previous.id) || (allowNew && (result.role !== "thread" || result.coordinator !== previous.id))) throw new Error("Control returned a different session identity; no native UI action performed.");
+  if ((!allowNew && result.id !== previous.id) || (allowNew && (result.kind !== "thread" || result.project !== previous.id))) throw new Error("Control returned a different session identity; no native UI action performed.");
   return result;
 }
 
@@ -37,7 +39,7 @@ const hasTerminal = session => session.state !== "stopped" && !!session.terminal
 
 // `extra` goes to control as given; control alone places sessions. Every action here is the user's.
 export async function performSessionAction(endpoint, action, record, extra, io) {
-  if (!["open", "create-thread", "rename", "order", "place", "close", "resolve", "delete"].includes(action)) throw new Error("Unknown session action.");
+  if (!["open", "create-thread", "rename", "order", "place", "move", "close", "resolve", "delete"].includes(action)) throw new Error("Unknown session action.");
   const execute = (...args) => {
     io.authorize(endpoint);
     return io.exec(...args);
@@ -72,7 +74,8 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
       if (io.closed?.()) throw new Error("Session opened, but this view closed before it could focus.");
       const pane = io.panes().find(pane => pane.terminal === terminal);
       if (pane) {
-        if (created || io.tabs().some(tab => tab.id === pane.tab && !tab.named)) {
+        // A placeholder is no title to show: the tab keeps its own name until the session has one.
+        if (result.titleSource !== "placeholder" && (created || io.tabs().some(tab => tab.id === pane.tab && !tab.named))) {
           io.run("tab.rename", { id: pane.tab, name: result.title });
           io.tabRenamed?.(endpoint, result, pane.tab);
         }
@@ -91,7 +94,7 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
 
 // What each action shows on its rows at once, until the list says the same or the action fails.
 const PENDING = { rename: extra => ({ title: extra.title }), resolve: () => ({ resolved: true }), close: () => ({ state: "stopped" }), delete: () => ({ deleted: true }),
-  open: () => ({ state: "starting" }), order: extra => ({ rank: extra.rank }), place: extra => ({ space: extra.space }) };
+  open: () => ({ state: "starting" }), order: extra => ({ rank: extra.rank }), place: extra => ({ space: extra.space }), move: extra => ({ folder: extra.folder }) };
 
 // A user's action on `session`, from the tree or an overlay alike. `io.shown(pending)` as it starts: the rows'
 // keys (a project's close and delete take its threads) and the fields it changes; `io.shown(pending, saved)` as it ends.

@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deletion, performSessionAction, sessionMenu } from "../mods/herdr-project-spaces/actions.js";
 
-const endpoint = { version: 2, command: ["/runtime", "/control"], stateDir: "/state", machine: "buildbox" };
-const record = { id: "project", coordinator: "project", role: "coordinator", title: "Project", cwd: "/project", space: "s1", tab: "tab1", terminal: "t1", state: "running", status: "idle", waiting: 0, resolved: false, rank: 1 };
-const child = { ...record, id: "thread", coordinator: "project", role: "thread", title: "New thread", terminal: "t2", tab: "tab2" };
+const endpoint = { version: 3, command: ["/runtime", "/control"], stateDir: "/state", machine: "buildbox" };
+const record = { id: "project", project: "project", kind: "coordinator", title: "Project", folder: "/project", space: "s1", tab: "tab1", terminal: "t1", state: "running", status: "idle", waiting: 0, resolved: false, rank: 1 };
+const child = { ...record, id: "thread", project: "project", kind: "thread", title: "New thread", terminal: "t2", tab: "tab2" };
 const pane = { pane: "buildbox/p2", terminal: "buildbox/t2", tab: "buildbox/tab2" };
 function harness(respond, visible = [pane]) {
   const calls = [], commands = [];
@@ -124,8 +124,28 @@ test("the menu closes only a running terminal of the session's own and resolves 
   const actions = extra => sessionMenu({ ...record, ...extra }).map(item => item.action);
   assert.deepEqual(actions({}), ["rename", "open", "close", "resolve", "delete"]);
   assert.deepEqual(actions({ state: "starting" }), ["rename", "open", "close", "resolve", "delete"]);
-  assert.deepEqual(actions({ state: "stopped", resolved: true }), ["rename", "open", "delete"]);
-  assert.match(deletion(record, [record, child, { ...child, id: "other" }, { ...child, coordinator: "elsewhere" }]).detail, /\b2\b/);
+  assert.deepEqual(actions({ state: "stopped", resolved: true }), ["rename", "open", "move", "delete"]);
+  assert.match(deletion(record, [record, child, { ...child, id: "other" }, { ...child, project: "elsewhere" }]).detail, /\b2\b/);
+});
+
+test("a session outside a project has the same items, each saying session", () => {
+  const plain = { ...record, kind: "plain", project: undefined };
+  assert.deepEqual(sessionMenu(plain).map(item => item.title), ["Rename session", "Open terminal", "Close session", "Resolve session", "Delete session"]);
+  assert.deepEqual(sessionMenu({ ...plain, state: "stopped" }).map(item => item.action), ["rename", "open", "move", "resolve", "delete"]);
+  assert.deepEqual([deletion(plain, [plain]).title, deletion(plain, [plain]).detail], ["Delete session?", "Project — its conversation and messages"]);
+});
+
+test("a thread that has no title yet leaves its tab's name alone", async () => {
+  const { io, commands } = harness(() => ({ ...child, titleSource: "placeholder" }));
+  await performSessionAction(endpoint, "create-thread", record, {}, io);
+  assert.deepEqual(commands.map(command => command[0]), ["tab.select", "pane.focus"]);
+});
+
+test("move folder hands the folder to control and touches no tab or pane", async () => {
+  const stopped = { ...record, state: "stopped", terminal: undefined };
+  const { io, calls, commands } = harness((_action, input) => ({ ...stopped, folder: input.folder }));
+  const result = await performSessionAction(endpoint, "move", stopped, { folder: "/moved" }, io);
+  assert.deepEqual([calls.map(call => [call.action, call.input.id, call.input.folder]), result.folder, commands], [[["move", "project", "/moved"]], "/moved", []]);
 });
 
 test("open and place hand their space to control, which alone places", async () => {

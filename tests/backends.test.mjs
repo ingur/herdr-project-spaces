@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SessionBackends, authorizeEndpoint, discoverEndpoints, endpointDescriptor, endpointKey, invoke, sessionRecord } from "../mods/herdr-project-spaces/backends.js";
 
-const descriptor = { version: 2, command: ["/usr/bin/runtime", "/control", "--fixed-arg"], stateDir: "/state" };
+const descriptor = { version: 3, command: ["/usr/bin/runtime", "/control", "--fixed-arg"], stateDir: "/state" };
 const local = endpointDescriptor(descriptor);
 const remote = endpointDescriptor(descriptor, "buildbox");
-const record = { id: "session", coordinator: "session", role: "coordinator", title: "Project", cwd: "/project", space: "s1", tab: "tab1", terminal: "t1", state: "running", status: "idle", waiting: 0, rank: 1 };
+const record = { id: "session", project: "session", kind: "coordinator", title: "Project", folder: "/project", space: "s1", tab: "tab1", terminal: "t1", state: "running", status: "idle", waiting: 0, rank: 1 };
 const ok = value => ({ code: 0, stdout: JSON.stringify(value), stderr: "" });
 const terminal = (address, value = descriptor, state = "live") => ({ address, state, labels: { "projects.control": JSON.stringify(value) } });
 const storage = () => { const map = new Map(); return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) }; };
@@ -124,7 +124,12 @@ test("an upgraded command is adopted from the one live terminal; two live comman
 
 test("control cannot smuggle qualified placement into another host", () => {
   for (const key of ["space", "tab", "terminal"]) assert.throws(() => sessionRecord({ ...record, [key]: "another/identity" }), /non-local/);
-  assert.throws(() => sessionRecord({ ...record, coordinator: "someone-else" }), /identity/);
+  assert.throws(() => sessionRecord({ ...record, project: "someone-else" }), /identity/);
+  const plain = { ...record, kind: "plain", project: undefined }, thread = { ...record, kind: "thread", project: "its-coordinator" };
+  assert.deepEqual([sessionRecord(plain), sessionRecord(thread)], [plain, thread]);
+  for (const wrong of [{ ...plain, project: "a-project" }, { ...thread, project: thread.id }, { ...thread, project: undefined }, { ...record, kind: "worker" }, { ...record, folder: "relative" }]) {
+    assert.throws(() => sessionRecord(wrong), /identity/);
+  }
   for (const rank of [undefined, null, "1", NaN, Infinity]) assert.throws(() => sessionRecord({ ...record, rank }), /numeric rank/);
   // A session of no known state must never pass for one with a terminal.
   for (const state of [undefined, "live", "finished"]) assert.throws(() => sessionRecord({ ...record, state }), /state/);

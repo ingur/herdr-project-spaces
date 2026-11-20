@@ -10,11 +10,11 @@ const conflictText = endpoint => `Two running terminals advertise different proj
 const cached = storage => JSON.parse(storage.getItem("projects.backends") || "[]");
 
 // This mod's whole link to herdr-projects: the descriptor a session's terminal carries as
-// its `projects.control` label (version 2: argv and state directory), and control's actions.
+// its `projects.control` label (version 3: argv and state directory), and control's actions.
 export function endpointDescriptor(value, machine = null) {
-  if (!value || value.version !== 2 || !absolute(value.stateDir) || !Array.isArray(value.command) || !absolute(value.command[0]) || value.command.some(arg => typeof arg !== "string" || /[\x00-\x1f\x7f]/.test(arg))) throw new Error("Invalid projects.control descriptor: version 2, an absolute executable/state directory, and printable argv required.");
+  if (!value || value.version !== 3 || !absolute(value.stateDir) || !Array.isArray(value.command) || !absolute(value.command[0]) || value.command.some(arg => typeof arg !== "string" || /[\x00-\x1f\x7f]/.test(arg))) throw new Error("Invalid projects.control descriptor: version 3, an absolute executable/state directory, and printable argv required.");
   if (machine !== null && (!printable(machine) || machine.includes("/"))) throw new Error("Invalid observed machine identity.");
-  return { version: 2, command: [...value.command], stateDir: value.stateDir, machine };
+  return { version: 3, command: [...value.command], stateDir: value.stateDir, machine };
 }
 
 // What the live terminals advertise, each machine/stateDir's command once per different one. A
@@ -29,7 +29,7 @@ export function discoverEndpoints(terminals) {
       if (!match) throw new Error("Descriptor has no unambiguous observed terminal address.");
       const value = JSON.parse(label);
       // Said once however many terminals carry it, so without the address; nothing is done with it.
-      if (value?.version !== undefined && value.version !== 2) { errors.add(`A session advertises projects.control version ${JSON.stringify(value.version)}; this sidebar knows version 2. Update herdr-project-spaces to see its project.`); continue; }
+      if (value?.version !== undefined && value.version !== 3) { errors.add(`A session advertises projects.control version ${JSON.stringify(value.version)}; this sidebar knows version 3. Update herdr-projects and herdr-project-spaces together to see it.`); continue; }
       // Only hc's address establishes the machine; descriptor payload cannot redirect execution.
       const endpoint = endpointDescriptor(value, match[1] ?? null);
       if (!endpoints.some(known => endpointKey(known) === endpointKey(endpoint) && sameCommand(known, endpoint))) endpoints.push(endpoint);
@@ -39,7 +39,9 @@ export function discoverEndpoints(terminals) {
 }
 
 export function sessionRecord(value) {
-  if (!value || !printable(value.id) || !printable(value.coordinator) || !printable(value.title) || !absolute(value.cwd) || !["coordinator", "thread"].includes(value.role) || (value.role === "coordinator") !== (value.id === value.coordinator)) throw new Error("Invalid session identity returned by control.");
+  // A plain session is in no project; a coordinator's project is itself, a thread's its coordinator.
+  const project = { plain: value?.project === undefined, coordinator: value?.project === value?.id, thread: printable(value?.project) && value.project !== value.id }[value?.kind];
+  if (!value || !printable(value.id) || !printable(value.title) || !absolute(value.folder) || !project) throw new Error("Invalid session identity returned by control.");
   for (const key of ["space", "tab", "terminal"]) {
     if (value[key] !== undefined && value[key] !== null && (!printable(value[key]) || value[key].includes("/"))) throw new Error(`Control returned a non-local ${key}.`);
   }

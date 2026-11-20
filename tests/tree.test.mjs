@@ -22,8 +22,8 @@ const { default: ProjectSpaces } = await import("../mods/herdr-project-spaces/ma
 const { SessionMenu } = await import("../mods/herdr-project-spaces/session-overlays.js");
 
 test("a live row's open focuses its pane and calls no control command", () => {
-  const endpoint = { version: 2, command: ["/control"], stateDir: "/state", machine: null };
-  const session = { id: "p", coordinator: "p", role: "coordinator", title: "P", cwd: "/p", rank: 0, state: "running", resolved: false, terminal: "t1",
+  const endpoint = { version: 3, command: ["/control"], stateDir: "/state", machine: null };
+  const session = { id: "p", project: "p", kind: "coordinator", title: "P", folder: "/p", rank: 0, state: "running", resolved: false, terminal: "t1",
     endpoint, available: true, native: { space: "one", tab: "tab", terminal: "t1" } };
   const rows = projectSpaces({ spaces: [{ id: "one", name: "one", tabs: [{ id: "tab" }] }], panes: [{ pane: "p1", tab: "tab", terminal: "t1" }], agents: [], sessions: [session] });
   globalThis.herdrCalls = [];
@@ -40,7 +40,7 @@ test("the mod's view starts its tree once", () => {
 });
 
 // Any action on this session fails before anything runs: control's descriptor is missing.
-const failing = { id: "p", coordinator: "p", role: "coordinator", title: "P", cwd: "/p", rank: 0, state: "stopped", resolved: false, endpoint: {}, available: true };
+const failing = { id: "p", project: "p", kind: "coordinator", title: "P", folder: "/p", rank: 0, state: "stopped", resolved: false, endpoint: {}, available: true };
 const key = sessionKey(failing);
 // A tree that only shows its rows, and a cx that runs a task as Herdr does: at once, up to its first await.
 function harness() {

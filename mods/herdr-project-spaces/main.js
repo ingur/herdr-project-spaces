@@ -1,9 +1,9 @@
 import { View } from "gpui-kit";
 import { props } from "herdr";
 import ProjectTree from "./tree.js";
-import { DeleteSession, NameSession, SessionMenu } from "./session-overlays.js";
+import { DeleteSession, SessionLine, SessionMenu, SpaceMenu } from "./session-overlays.js";
 
-const ROLES = { "session-menu": SessionMenu, rename: NameSession, "new-thread": NameSession, delete: DeleteSession };
+const ROLES = { "session-menu": SessionMenu, "space-menu": SpaceMenu, rename: SessionLine, "new-thread": SessionLine, move: SessionLine, delete: DeleteSession };
 
 // Use the same per-overlay role convention as the installed native mods.
 export default class ProjectSpaces extends View {

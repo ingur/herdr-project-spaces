@@ -1,14 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, resolvedToggle, selectedKey, sessionKey, spaceDrop, spaceItems, spaceRows, stepRow } from "../mods/herdr-project-spaces/projection.js";
+import { tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, reopening, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceRecords, spaceRows, spaceSessions, stepRow } from "../mods/herdr-project-spaces/projection.js";
 import { qualify } from "../mods/herdr-project-spaces/backends.js";
 
-const endpoint = (machine = null, stateDir = "/state") => ({ version: 2, command: ["/bin/node", "/control.mjs"], stateDir, machine });
+const endpoint = (machine = null, stateDir = "/state") => ({ version: 3, command: ["/bin/node", "/control.mjs"], stateDir, machine });
 const space = (id, tabs, extra = {}) => ({ id, name: id, machine: null, folder: "/workspace", tabs: tabs.map(id => ({ id, name: "same title", named: true })), ...extra });
 const session = (id, coordinator = id, extra = {}) => {
-  const record = { id, coordinator, role: id === coordinator ? "coordinator" : "thread", title: "same title", cwd: "/project", space: "one", rank: 0, state: "stopped", resolved: false, endpoint: endpoint(), available: true, ...extra };
+  const record = { id, project: coordinator, kind: id === coordinator ? "coordinator" : "thread", title: "same title", folder: "/project", space: "one", rank: 0, state: "stopped", resolved: false, endpoint: endpoint(), available: true, ...extra };
   return { ...record, native: { space: qualify(record.endpoint.machine, record.space), tab: qualify(record.endpoint.machine, record.tab), terminal: qualify(record.endpoint.machine, record.terminal) } };
 };
+const plain = (id, extra = {}) => session(id, undefined, { kind: "plain", project: undefined, ...extra });
 const world = { spaces: [space("one", ["tab-one"]), space("two", ["tab-two"])], panes: [], agents: [] };
 const live = { state: "running" };
 
@@ -44,7 +45,7 @@ test("resolved visibility is per project, without reopening or leaking an owned 
   const before = structuredClone(sessions);
   const hidden = projectSpaces({ ...world, sessions, panes })[0];
   assert.deepEqual(hidden.groups.map(group => group.children.length), [0, 0]);
-  assert.deepEqual(hidden.groups.map(group => group.resolvedCount), [1, 1]);
+  assert.deepEqual(hidden.groups.map(group => group.archived), [1, 1]);
   assert.equal(hidden.entries.length, 0);
   const visible = projectSpaces({ ...world, sessions, panes, showResolved: new Set([sessionKey(sessions[0])]) })[0];
   assert.deepEqual(visible.groups.map(group => group.children.length), [1, 0]);
@@ -173,7 +174,7 @@ test("a resolved project hides with all its threads until its space shows them, 
   const sessions = [session("open"), session("done", "done", { resolved: true, terminal: "t1", ...live }), session("child", "done")];
   const panes = [{ pane: "p1", tab: "tab-one", terminal: "t1" }];
   const [one] = projectSpaces({ ...world, sessions, panes });
-  assert.deepEqual([one.groups.map(group => group.key), one.resolvedCount, one.entries], [[key("open")], 1, []]);
+  assert.deepEqual([one.groups.map(group => group.key), one.archived, one.entries], [[key("open")], 1, []]);
   const [shown] = projectSpaces({ ...world, sessions, panes, showResolved: new Set(["space:one"]) });
   assert.deepEqual(shown.groups.map(group => [group.key, group.children.length]), [[key("open"), 0], [key("done"), 1]]);
 });
@@ -193,18 +194,18 @@ test("the resolved key toggles the level the selection is on, or the view that h
   assert.equal(resolvedToggle(rows("t2"), "space:two"), "space:one", "a thread of a resolved project by its space's view");
 });
 
-test("gone local projects disappear; unreachable and loading spaces keep their existing rows", () => {
+test("a space Herdr closed keeps its unresolved sessions under a row called after their folder; unreachable and loading spaces keep theirs", () => {
   const sessions = [session("home"), session("stray", "home", { space: "gone" }), session("lost", "lost", { space: "gone", tab: "tab-one" }),
     session("child", "lost"), session("other", "other", { space: "gone-too", resolved: true }), session("orphan", "absent"),
     session("far", "far", { space: "gone", endpoint: endpoint("remote"), available: false })];
   const project = options => projectSpaces({ ...world, sessions, ...options });
-  const rows = options => project(options).map(row => [row.key, row.missing, row.groups.length, row.resolvedCount]);
-  assert.deepEqual(rows({}), [["one", false, 1, 0], ["two", false, 0, 0], ["remote/gone", true, 1, 0]]);
+  const rows = options => project(options).map(row => [row.key, row.missing, row.groups.length, row.archived]);
+  assert.deepEqual(rows({}), [["one", false, 1, 0], ["two", false, 0, 0], ["gone", true, 1, 0], ["remote/gone", true, 1, 0]]);
   assert.deepEqual(rows({ ready: false }), [["one", false, 1, 0], ["two", false, 0, 0], ["gone", true, 1, 0], ["gone-too", true, 0, 1], ["remote/gone", true, 1, 0]]);
-  assert.equal(project({})[2].space.name, "Unavailable space");
-  assert.equal(project({ ready: false })[2].space.name, "Unavailable space");
-  assert.deepEqual(displayRows(project({}), new Set()).map(item => item.row.session.id), ["home", "stray", "far"]);
-  assert.equal(resolvedToggle(project({}), key("lost")), null);
+  assert.deepEqual(project({}).slice(2).map(row => [row.space.name, row.space.closed]), [["project", true], ["Unavailable space", false]]);
+  assert.deepEqual(project({ ready: false }).slice(2).map(row => [row.space.name, row.space.closed]), [["Unavailable space", false], ["Unavailable space", false], ["Unavailable space", false]]);
+  assert.deepEqual(displayRows(project({}), new Set()).map(item => item.row.session.id), ["home", "stray", "lost", "child", "far"]);
+  assert.deepEqual(spaceSessions(project({})[2]).map(session => session.id), ["lost"]);
   assert.equal(selectedKey(project({}), new Set()), null);
   assert.equal(stepRow(displayRows(project({}), new Set()), null, 1), null);
 });
@@ -227,19 +228,19 @@ test("stopped threads follow their project's current space, never their stale sp
   assert.deepEqual(opens("away", remote), {}, "another machine's space may only be out of reach");
 });
 
-test("only a project is dropped on a space: by its head, on another space of its own machine", () => {
+test("only a project is dropped on a space: by its head, on another open space of its own machine", () => {
   const spaces = [...world.spaces, space("remote/one", [], { machine: "remote" })];
   const sessions = [session("home"), session("thread", "home"), session("lost", "lost", { space: "gone" }), session("running", "running", { terminal: "t1", ...live }),
     session("far", "far", { space: "gone", endpoint: endpoint("remote") })];
   const rows = projectSpaces({ spaces, panes: [{ pane: "p1", tab: "tab-one", terminal: "t1" }, { pane: "p2", tab: "tab-one", terminal: "t2" }], agents: [], sessions });
   const far = sessionKey(sessions[4]);
-  for (const [from, to] of [[key("home"), "two"], [far, "remote/one"]]) assert.equal(spaceDrop(rows, from, to)?.key, from, `${from} on ${to}`);
+  for (const [from, to] of [[key("home"), "two"], [key("lost"), "one"], [far, "remote/one"]]) assert.equal(spaceDrop(rows, from, to)?.key, from, `${from} on ${to}`);
   assert.equal(spaceDrop(rows, key("running"), "two").live, true, "one that runs is the caller's to refuse");
   const refused = [
     [key("home"), "one"], // where it is
     [key("thread"), "two"], ["t2", "two"], // a thread goes with its project, a terminal is where it is
     [key("home"), "remote/one"], [far, "one"], // another machine
-    [key("lost"), "one"], [key("home"), "remote/gone"], [key("home"), "nowhere"], [null, "two"],
+    [key("home"), "gone"], [key("home"), "remote/gone"], [key("home"), "nowhere"], [null, "two"], // a closed or unreachable space, or none
   ];
   for (const [from, to] of refused) assert.equal(spaceDrop(rows, from, to), null, `${from} on ${to}`);
 });
@@ -330,30 +331,30 @@ test("a tab already showing the title after a reload is synced, so renaming it r
 
 test("a terminal started for a session is never listed as a shell of its own while it registers", () => {
   const spaces = [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "1", named: false, panes: 1 }] }];
-  const stopped = { id: "x", coordinator: "x", role: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
+  const stopped = { id: "x", project: "x", kind: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
   const row = projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents: [], sessions: [stopped],
     terminals: [{ address: "t9", argv: ["pi"], labels: { "projects.session": "x", "projects.launched": "1" } }] })[0];
   assert.deepEqual(row.entries, []);
   assert.equal(row.groups.length, 1);
 });
 
-test("a terminal control started, or a shell hc put in a session's place, is never a row of its own; a shell the user is in is", () => {
+test("a terminal control started, or the shell the list gives an interrupted session, is never a row of its own; a shell the user is in is", () => {
   const spaces = [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "1", named: false, panes: 1 }] }];
-  const stopped = { id: "x", coordinator: "x", role: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
-  const entries = (agents, labels, pid = 42) => projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents, sessions: [stopped],
-    terminals: [{ address: "t9", argv: ["zsh"], labels, pid, status: null, foreground: { pid } }] })[0].entries;
+  const stopped = { id: "x", project: "x", kind: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
+  const entries = (agents, labels, session = stopped) => projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents, sessions: [session],
+    terminals: [{ address: "t9", argv: ["zsh"], labels }] })[0].entries;
   const left = { "projects.session": "x", "projects.launched": "1" };
   assert.deepEqual(entries([], left), [], "the shell Herdr brought back in the session's tab stands for the session");
   assert.deepEqual(entries([{ address: "t9", tab: "tab", program: { name: "pi", agent: true }, status: "idle" }], left), [], "nor while its agent reports before the list says whose it is");
   assert.deepEqual(entries([], { "projects.session": "new", "projects.launched": "1" }), [], "nor for a session the list does not know yet");
   assert.deepEqual(entries([], { "projects.session": "x" }).map(entry => entry.title), ["zsh"], "a shell the user started is theirs");
   const waiting = { "projects.session": "x", "projects.pid": "@41" };
-  assert.deepEqual(entries([], waiting), [], "the shell hc put where the user's own terminal held the session stands for the session too");
-  assert.deepEqual(entries([], waiting, 41).map(entry => entry.title), ["zsh"], "the shell the user quit the agent in is theirs");
+  assert.deepEqual(entries([], waiting, { ...stopped, interrupted: true, native: { space: "one", terminal: "t9" } }), [], "the shell hc put in the session's place stands for the session");
+  assert.deepEqual(entries([], waiting).map(entry => entry.title), ["zsh"], "the shell the user quit the agent in is theirs");
 });
 
 test("a session's terminal is no row of its own while its control has not answered", () => {
-  const control = JSON.stringify({ version: 2, command: ["/bin/node", "/control.mjs"], stateDir: "/state" });
+  const control = JSON.stringify({ version: 3, command: ["/bin/node", "/control.mjs"], stateDir: "/state" });
   const panes = [{ pane: "p1", tab: "tab-one", terminal: "t1" }], agents = [{ address: "t1", tab: "tab-one", space: "one", program: { name: "pi", agent: true }, status: "idle" }];
   const terminals = [{ address: "t1", state: "live", labels: { "projects.session": "c", "projects.control": control } }];
   const entries = sessions => projectSpaces({ ...world, panes, agents, terminals, sessions })[0].entries.map(entry => entry.terminal);
@@ -369,4 +370,62 @@ test("tab names are neither changed nor forgotten while a control has not answer
     assert.deepEqual(tabRenames([{ ...record, ...extra }], panes, tabs, applied), []);
   }
   assert.deepEqual(tabRenames([{ ...record, state: "stopped" }], panes, tabs, applied), [{ id: "a", name: "" }], "a tab its session really left still gets its number back");
+});
+
+test("a session outside a project is a row of its space, in place of its terminal's own row, and moves like one", () => {
+  const sessions = [plain("running", { terminal: "t1", rank: 3, ...live }), plain("stopped", { rank: 1 }), session("c", "c", { rank: 2 })];
+  const panes = [{ pane: "p1", tab: "tab-one", terminal: "t1" }, { pane: "p2", tab: "tab-one", terminal: "t2", title: "shell" }];
+  const terminals = [{ address: "t2", created_ms: 0 }];
+  const rows = projectSpaces({ ...world, sessions, panes, agents: [], terminals }), [one] = rows;
+  assert.deepEqual(spaceItems(one).map(item => item.children ? "project" : item.session?.id ?? item.terminal), ["running", "project", "stopped", "t2"]);
+  assert.deepEqual(one.entries.filter(entry => entry.session).map(entry => [entry.live, entry.terminal]), [[true, "t1"], [false, undefined]]);
+  assert.deepEqual(displayRows(rows, new Set()).map(item => item.row.session?.id ?? item.row.terminal), ["running", "c", "stopped", "t2"]);
+  assert.equal(stepRow(displayRows(rows, new Set()), sessionKey(sessions[0]), 1).terminal, "t2", "a key passes over a stopped session");
+  assert.equal(dropRank(rows, sessionKey(sessions[1]), sessionKey(sessions[0])).rank, 1003);
+  assert.equal(spaceDrop(rows, sessionKey(sessions[1]), "two").session.id, "stopped");
+  assert.deepEqual(openSpace(rows, sessionKey(sessions[1])), {});
+});
+
+test("a resolved session outside a project is listed, like a resolved project, only while its space shows what is resolved", () => {
+  const sessions = [plain("past", { resolved: true }), plain("tabbed"), session("done", "done", { resolved: true })];
+  const hidden = projectSpaces({ ...world, sessions })[0];
+  assert.deepEqual([hidden.entries.map(entry => entry.session.id), hidden.groups.length, hidden.archived], [["tabbed"], 0, 2]);
+  const shown = projectSpaces({ ...world, sessions, showResolved: new Set(["space:one"]) })[0];
+  assert.deepEqual([shown.entries.map(entry => entry.session.id), shown.groups.length, shown.archived], [["past", "tabbed"], 1, 2]);
+});
+
+test("the hover line gives the folder and the mail that waits, whatever the session's state", () => {
+  const row = projectSpaces({ ...world, sessions: [plain("p", { waiting: 2 })] })[0].entries[0];
+  assert.equal(sessionDetail(row, world.spaces[0]), "/project · stopped · 2 messages waiting");
+  const running = projectSpaces({ ...world, sessions: [plain("p", { waiting: 1, terminal: "t1", ...live })], panes: [{ pane: "p1", tab: "tab-one", terminal: "t1" }] })[0].entries[0];
+  assert.equal(sessionDetail(running, world.spaces[0]), "/project · 1 message waiting");
+});
+
+test("a session that has no title yet does not name its tab", () => {
+  const untitled = plain("p", { title: "New session", titleSource: "placeholder", terminal: "t1", ...live });
+  const panes = [{ terminal: "t1", tab: "a" }], tabs = [{ id: "a", named: false, name: "1", panes: 1 }];
+  assert.deepEqual(tabRenames([untitled], panes, tabs, new Map()), []);
+  assert.deepEqual(tabRenames([{ ...untitled, title: "Parser", titleSource: "agent" }], panes, tabs, new Map()), [{ id: "a", name: "Parser" }]);
+});
+
+test("a space of this computer is remembered as last seen open: its name and what ran in it; a closed one opens with what is still under it", () => {
+  const mine = [space("one", ["tab-one"], { name: "Mine" }), space("two", ["tab-two"]), space("remote/one", [], { machine: "remote" })];
+  const running = [session("run", "run", { terminal: "t1", ...live }), session("child", "run", { terminal: "t2", ...live }), plain("idle")];
+  const panes = [{ pane: "p1", tab: "tab-one", terminal: "t1" }, { pane: "p2", tab: "tab-one", terminal: "t2" }];
+  const seen = spaceRecords(projectSpaces({ spaces: mine, panes, agents: [], sessions: running }), { gone: { name: "Gone", running: [] } });
+  assert.deepEqual(seen, { one: { name: "Mine", running: [key("run"), key("child")] }, two: { name: "two", running: [] } });
+
+  const stopped = [session("run"), session("child", "run"), plain("idle")];
+  const closed = sessions => projectSpaces({ spaces: mine.slice(1), panes: [], agents: [], sessions, records: seen });
+  const row = sessions => closed(sessions).find(row => row.key === "one");
+  assert.deepEqual([row(stopped).space.name, row(stopped).space.closed], ["Mine", true]);
+  const kept = spaceRecords(closed(stopped), seen);
+  assert.deepEqual(kept.one, { ...seen.one, closed: true });
+  assert.deepEqual(reopening(row(stopped), kept.one).map(item => item.session.id), ["run", "child"]);
+
+  const moved = [session("run", "run", { space: "two" }), session("child", "run"), plain("idle")];
+  assert.deepEqual(reopening(row(moved), kept.one), [], "a project moved to another space takes its threads; what never ran stays closed");
+  assert.deepEqual(reopening(row(stopped), undefined), []);
+  const resolved = stopped.map(session => ({ ...session, resolved: true }));
+  assert.deepEqual(Object.keys(spaceRecords(closed(resolved), kept)), ["two"], "with no row left, the record goes");
 });

@@ -3,7 +3,7 @@ import { Button, h_flex, v_flex } from "gpui-base";
 import { agents, exec, hc, machines, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, theme, updates } from "herdr";
 import StockSpaces, { STOCK_VERSION } from "./stock-spaces.js";
 import { SessionBackends, authorizeEndpoint, errorText, qualify, savedSessions, unqualify } from "./backends.js";
-import { displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceKey, spaceRows, stepRow, tabRenames, urgentStatus } from "./projection.js";
+import { displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, reopening, resolvedToggle, selectedKey, sessionDetail, sessionKey, settled, spaceDrop, spaceItems, spaceKey, spaceRecords, spaceRows, spaceSessions, stepRow, tabRenames, urgentStatus } from "./projection.js";
 import { act } from "./actions.js";
 
 export const MOD = "herdr-project-spaces";
@@ -16,7 +16,8 @@ export const backendStorage = {
 // An overlay (its own copy of the mod) sets this as it starts and ends an action (actionIO's `shown`): the tree shows it at once.
 export const CHANGED = `${MOD}.changed`;
 // Herdr ships no bin icon, so that one is ours.
-export const icon = (name, size = 13) => svg(name === "trash" ? `mods/${MOD}/trash.svg` : `mods/workspace-chrome/${name}.svg`).size(size).flex_none();
+const OWN_ICONS = ["trash", "mail"];
+export const icon = (name, size = 13) => svg(`mods/${OWN_ICONS.includes(name) ? MOD : "workspace-chrome"}/${name}.svg`).size(size).flex_none();
 // Herdr's own program icon, drawn as the Agents mod draws it; a terminal where the row has none.
 const programIcon = program => program?.icon ? (program.tint ? svg(program.icon) : image(program.icon)).size(13).flex_none() : icon("terminal");
 const rememberTabTitle = (applied, title) => {
@@ -49,6 +50,14 @@ function readSet(key) {
   } catch (error) { reportError(error); return new Set(); }
 }
 
+function readRecords(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some(record => typeof record?.name !== "string" || !Array.isArray(record.running))) throw new Error(`Invalid saved ${key}.`);
+    return value;
+  } catch (error) { reportError(error); return {}; }
+}
+
 function smallButton(id, glyph, title, action, selected = false) {
   const t = theme();
   return Button.new(id).size(20).flex_none().flex().items_center().justify_center().rounded(4)
@@ -59,8 +68,6 @@ function smallButton(id, glyph, title, action, selected = false) {
     .on_click((_e, cx) => { cx.stop_propagation(); action(cx); }).child(icon(glyph, 11));
 }
 // The place of a hover control while it is hidden: nothing in the row moves when it shows.
-const slot = () => div().size(20).flex_none();
-
 // The Agents panel's status mark for the most urgent of `rows` (a spinner while working, a ! when
 // blocked, a dot when done; nothing when idle, where Agents draws a ring), then a small dim count of the rows a fold hides.
 // Spinner and dot share a centre, so the mark keeps its place when the status changes.
@@ -78,8 +85,9 @@ export default class ProjectTree extends StockSpaces {
   init(options, cx) {
     super.init(options, cx);
     this.projectFolds = readSet("projects.folded");
-    // The resolved views that are on: a project's key for its resolved threads, a space's for its resolved projects.
+    // The resolved views that are on: a project's key for its resolved threads, a space's for its resolved projects and sessions.
     this.showResolved = readSet("projects.resolved");
+    this.remembered = readRecords("projects.spaces");
     this.actions = new Set();
     this.lastErrors = "";
     this.order = [];
@@ -255,6 +263,24 @@ export default class ProjectTree extends StockSpaces {
       });
   }
 
+  remember(records) {
+    const saved = JSON.stringify(records);
+    if (saved === JSON.stringify(this.remembered)) return;
+    const closing = Object.keys(records).filter(id => records[id].closed && !this.remembered[id].closed);
+    for (const id of closing) this.projectFolds.add(spaceKey(id));
+    if (closing.length) localStorage.setItem("projects.folded", JSON.stringify([...this.projectFolds]));
+    localStorage.setItem("projects.spaces", saved);
+    this.remembered = records;
+  }
+
+  reopen(row, cx) {
+    const key = spaceKey(row.key), pressed = this.pressed;
+    this.pressed = this.over = null;
+    if (pressed !== row.key) return;
+    if (this.projectFolds.has(key)) this.toggle(this.projectFolds, key, "projects.folded", cx);
+    for (const session of reopening(row, this.remembered[row.key])) this.open(session, cx);
+  }
+
   hoverRow(key, on, cx) {
     if (on) this.hoveredRow = key;
     else if (this.hoveredRow === key) this.hoveredRow = null;
@@ -289,32 +315,31 @@ export default class ProjectTree extends StockSpaces {
     return [smallButton(`fold-${key}`, folded ? "chevron-right" : "chevron-down", `${folded ? "Expand" : "Fold"} ${space.name}`, cx => this.toggle(this.projectFolds, key, "projects.folded", cx))];
   }
 
-  // The archive button of a resolved view (`key` in `showResolved`), where there are resolved `what`
-  // to show or they show: on the hovered row, as its `+`, and while the view is on, which it then says.
+  // The archive button of a resolved view (`key` in `showResolved`): on the hovered row, as its `+`, where there is `what` to show.
   archive(key, count, what, hovered) {
+    if (!count || !hovered) return [];
     const on = this.showResolved.has(key);
-    if (!count && !on) return [];
-    return [on || hovered ? smallButton(`archives-${key}`, "archive", `${on ? "Hide" : "Show"} resolved ${what} (${count})`, cx => this.toggle(this.showResolved, key, "projects.resolved", cx), on) : slot()];
+    return [smallButton(`archives-${key}`, "archive", `${on ? "Hide" : "Show"} ${what} (${count})`, cx => this.toggle(this.showResolved, key, "projects.resolved", cx), on)];
   }
 
   // `missing`: the row of a space out of reach, where no terminal can start.
   rowTrailing(space, t, missing) {
     const key = spaceKey(space.id), row = this.projection.get(space.id), hovered = this.hoveredRow === key;
     const hidden = row && this.projectFolds.has(key) ? spaceRows(row) : [];
-    return [...marks(hidden, hidden.length, t), ...this.archive(key, row?.resolvedCount ?? 0, "projects", hovered),
-      ...(missing ? [] : [hovered ? smallButton(`shell-${space.id}`, "plus", `New terminal in ${space.name}`, () => run("tab.new", { space: space.id })) : slot()])];
+    return [...marks(hidden, hidden.length, t), ...this.archive(key, row?.archived ?? 0, "resolved projects and sessions", hovered),
+      ...(missing || !hovered ? [] : [smallButton(`shell-${space.id}`, "plus", `New terminal in ${space.name}`, () => run("tab.new", { space: space.id }))])];
   }
 
   // Stock's hook for a row that is no space, dropped on space `w`: what the drop does when the row
-  // keyed `from` is a stopped project (projection's `spaceDrop`), and stock draws its drop line. Control
-  // keeps the project's new space; one that runs is where its terminal is, so it has no drop.
+  // keyed `from` is a stopped project or a stopped session outside a project (projection's `spaceDrop`),
+  // and stock draws its drop line. Control keeps the new space; a session that runs is where its terminal is, so it has no drop.
   rowDrop(from, w) {
     const row = spaceDrop(this.drawn, from, w.id);
     return row && !row.live ? cx => this.action("place", row, cx, { space: unqualify(w.machine, w.id) }) : null;
   }
 
   unavailableRows(rows, t) {
-    return rows.filter(({ w }) => this.projection.get(w.id)?.groups.length || this.projection.get(w.id)?.resolvedCount).map(row => this.row({ ...row, snapshot: true }, t));
+    return rows.filter(({ w }) => this.projection.get(w.id)?.groups.length || this.projection.get(w.id)?.archived).map(row => this.row({ ...row, snapshot: true }, t));
   }
 
   row(native, t) {
@@ -323,29 +348,32 @@ export default class ProjectTree extends StockSpaces {
     const missing = row?.missing || native.snapshot;
     const head = missing ? h_flex().id(`space-${native.w.id}`).h(30).px(8).gap(9).items_center().rounded(8).text_color(t.dim)
       .when(selected, el => el.bg(t.selected)).on_hover((on, cx) => this.hoverRow(key, on, cx))
-      .children(this.rowLeading(native.w)).child(icon("folder"))
-      .child(div().flex_1().truncate().tooltip("Out of reach; its projects open again once its machine reconnects.").child(native.w.name))
+      .children(this.rowLeading(native.w))
+      .child(native.w.closed ? h_flex().size(18).flex_none().rounded(5).bg(t.dim).items_center().justify_center().text_size(10.5).font_bold().text_color("#ffffff").child([...native.w.name][0]?.toUpperCase() ?? "?") : icon("folder"))
+      .when(!!native.w.closed, el => el.on_mouse_down("left", () => { this.pressed = this.over = native.w.id; }).on_mouse_up("left", (_e, cx) => this.reopen(row, cx)).on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: MOD, kind: "popup", width: 200, props: { role: "space-menu", sessions: spaceSessions(row) } }); }))
+      .child(div().flex_1().truncate().tooltip(native.w.closed ? "Closed; opening one of its sessions brings it back." : "Out of reach; its projects open again once its machine reconnects.").child(native.w.name))
       .children(this.rowTrailing(native.w, t, true))
       // Stock fills the row of the `active` space; here the selected row has the fill, which a session's may be.
       : super.row({ ...native, w: { ...native.w, active: selected } }, t).on_hover((on, cx) => this.hoverRow(key, on, cx));
     return v_flex().flex_none().child(head).when(!this.projectFolds.has(key) && !!row, el => el.children(
-      spaceItems(row).flatMap(item => item.children ? this.groupRows(item, native.w) : [this.independentRow(item)])));
+      spaceItems(row).flatMap(item => item.children ? this.groupRows(item, native.w) : item.session ? [this.sessionRow(item, null, native.w)] : [this.independentRow(item)])));
   }
 
   compact(native, t) {
     if (!this.projection.get(native.w.id)?.missing) return super.compact(native, t);
     return h_flex().h(26).justify_center().items_center().text_color(t.dim)
-      .tooltip(`${native.w.name}: last session snapshot; space unavailable`).child(icon("folder"));
+      .tooltip(`${native.w.name}: ${native.w.closed ? "closed" : "last session snapshot; space unavailable"}`).child(icon("folder"));
   }
 
   sessionRow(row, group, anchor) {
     const t = theme(), session = row.session, project = !!group, selected = this.selected === row.key, hovered = this.hoveredRow === row.key;
     const foldKey = projectKey(row.key), folded = project && this.projectFolds.has(foldKey), hidden = folded ? group.children : [];
     const controls = project ? [
-      ...this.archive(group.key, group.resolvedCount, "threads", hovered),
-      hovered ? smallButton(`thread-${row.key}`, "plus", `New thread in ${session.title}`, cx => this.newThread(row, cx)) : slot(),
+      ...this.archive(group.key, group.archived, "resolved threads", hovered),
+      ...(hovered ? [smallButton(`thread-${row.key}`, "plus", `New thread in ${session.title}`, cx => this.newThread(row, cx))] : []),
     ] : [];
-    return this.draggable(h_flex().id(`session-${row.key}`).h(28).flex_none().pl(project ? 26 : 73).pr(8).gap(7).items_center().rounded(7)
+    const indent = { coordinator: 26, thread: 73, plain: 53 }[session.kind];
+    return this.draggable(h_flex().id(`session-${row.key}`).h(28).flex_none().pl(indent).pr(8).gap(7).items_center().rounded(7)
       .text_size(12.8).text_color(session.resolved || !row.live && session.state !== "starting" ? t.dim : t.foreground)
       .when(selected, el => el.bg(t.selected)).when(!selected, el => el.hover(s => s.bg(t.hover)))
       .on_hover((on, cx) => this.hoverRow(row.key, on, cx))
@@ -354,7 +382,8 @@ export default class ProjectTree extends StockSpaces {
       .child(programIcon(row.program))
       // The name carries the hover line, which stock's truncated names do not have; the row's buttons have their own.
       .child(div().flex_1().min_w(0).truncate().tooltip(sessionDetail(row, anchor)).child(session.title))
-      .children(marks([row, ...hidden], hidden.length, t))
+      .children(session.waiting > 0 ? [h_flex().flex_none().gap(3).items_center().text_size(11).text_color(t.dim).child(icon("mail", 11)).child(String(session.waiting))] : [])
+      .children(session.resolved ? [icon("check", 12)] : marks([row, ...hidden], hidden.length, t))
       .children(controls), row, t);
   }
 
@@ -365,7 +394,7 @@ export default class ProjectTree extends StockSpaces {
       .child(smallButton(`fold-${key}`, folded ? "chevron-right" : "chevron-down", `${folded ? "Expand" : "Fold"} ${group.title}`, cx => this.toggle(this.projectFolds, key, "projects.folded", cx)))
       .child(div().flex_1().truncate().child(group.title))
       .children(marks(hidden, hidden.length, t))
-      .children(this.archive(group.key, group.resolvedCount, "threads", true));
+      .children(this.archive(group.key, group.archived, "resolved threads", true));
     return [head, ...(folded ? [] : group.children.map(row => this.sessionRow(row, null, space)))];
   }
 
@@ -395,10 +424,12 @@ export default class ProjectTree extends StockSpaces {
       this.refreshSessions(cx);
     }
     // This computer's spaces are all read: until then every one of them looks gone.
-    const local = machines().find(machine => machine.name === null)?.layout;
-    const rows = projectSpaces({ spaces: spaces(), panes: panes(), agents: agents(), sessions: this.backends.sessions().map(session => this.withPending(session)),
+    const local = machines().find(machine => machine.name === null)?.layout, ready = !local || local === "ready";
+    const sessions = this.backends.sessions().map(session => this.withPending(session));
+    const rows = projectSpaces({ spaces: spaces(), panes: panes(), agents: agents(), sessions,
       terminals: this.ranked(all, t => t.address, t => Number(t.labels?.["projects.rank"]), (t, rank) => ({ ...t, labels: { ...t.labels, "projects.rank": String(rank) } })),
-      showResolved: this.showResolved, ready: !local || local === "ready" });
+      showResolved: this.showResolved, records: this.remembered, ready });
+    if (ready && settled(sessions)) this.remember(spaceRecords(rows, this.remembered));
     this.projection = new Map(rows.map(row => [row.key, row]));
     this.selected = selectedKey(rows, this.projectFolds);
     this.drawn = [];
