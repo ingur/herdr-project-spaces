@@ -338,7 +338,7 @@ test("a terminal started for a session is never listed as a shell of its own whi
   assert.equal(row.groups.length, 1);
 });
 
-test("a terminal control started, or the shell the list gives an interrupted session, is never a row of its own; a shell the user is in is", () => {
+test("a terminal control started, or the shell the list names as a stopped session's terminal, is never a row of its own; a shell the user is in is", () => {
   const spaces = [{ id: "one", name: "one", machine: null, folder: "/w", tabs: [{ id: "tab", name: "1", named: false, panes: 1 }] }];
   const stopped = { id: "x", project: "x", kind: "coordinator", title: "Project", endpoint: { machine: null, stateDir: "/s" }, available: true, state: "stopped", native: { space: "one" } };
   const entries = (agents, labels, session = stopped) => projectSpaces({ spaces, panes: [{ pane: "p1", terminal: "t9", tab: "tab", title: "t9" }], agents, sessions: [session],
@@ -349,7 +349,7 @@ test("a terminal control started, or the shell the list gives an interrupted ses
   assert.deepEqual(entries([], { "projects.session": "new", "projects.launched": "1" }), [], "nor for a session the list does not know yet");
   assert.deepEqual(entries([], { "projects.session": "x" }).map(entry => entry.title), ["zsh"], "a shell the user started is theirs");
   const waiting = { "projects.session": "x", "projects.pid": "@41" };
-  assert.deepEqual(entries([], waiting, { ...stopped, interrupted: true, native: { space: "one", terminal: "t9" } }), [], "the shell hc put in the session's place stands for the session");
+  assert.deepEqual(entries([], waiting, { ...stopped, native: { space: "one", terminal: "t9" } }), [], "the shell hc put in the session's place stands for the session");
   assert.deepEqual(entries([], waiting).map(entry => entry.title), ["zsh"], "the shell the user quit the agent in is theirs");
 });
 
