@@ -1,5 +1,5 @@
 import { errorText, invoke, qualify, sessionRecord } from "./backends.js";
-import { sessionKey } from "./projection.js";
+import { sessionKey, soleTab } from "./projection.js";
 
 export const sessionWord = session => ({ plain: "session", coordinator: "project", thread: "thread" })[session.kind];
 const threadsOf = (session, records) => records.filter(record => record.kind === "thread" && record.project === session.id);
@@ -55,10 +55,10 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
     // Never rename an old tab now occupied by an unrelated shell.
     if (hasTerminal(result)) {
       const terminal = qualify(endpoint.machine, result.terminal);
-      const pane = io.panes().find(pane => pane.terminal === terminal);
-      if (pane) {
-        io.run("tab.rename", { id: pane.tab, name: result.title });
-        io.tabRenamed?.(endpoint, result, pane.tab);
+      const tab = soleTab(io.panes().find(pane => pane.terminal === terminal), io.tabs());
+      if (tab) {
+        io.run("tab.rename", { id: tab.id, name: result.title });
+        io.tabRenamed?.(endpoint, result, tab.id);
       }
     }
     return result;
@@ -75,9 +75,10 @@ export async function performSessionAction(endpoint, action, record, extra, io) 
       const pane = io.panes().find(pane => pane.terminal === terminal);
       if (pane) {
         // A placeholder is no title to show: the tab keeps its own name until the session has one.
-        if (result.titleSource !== "placeholder" && (created || io.tabs().some(tab => tab.id === pane.tab && !tab.named))) {
-          io.run("tab.rename", { id: pane.tab, name: result.title });
-          io.tabRenamed?.(endpoint, result, pane.tab);
+        const tab = soleTab(pane, io.tabs());
+        if (result.titleSource !== "placeholder" && tab && (created || !tab.named)) {
+          io.run("tab.rename", { id: tab.id, name: result.title });
+          io.tabRenamed?.(endpoint, result, tab.id);
         }
         io.run("tab.select", { id: pane.tab });
         io.run("pane.focus", { pane: pane.pane });

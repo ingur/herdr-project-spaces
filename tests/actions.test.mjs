@@ -6,7 +6,7 @@ const endpoint = { version: 3, command: ["/runtime", "/control"], stateDir: "/st
 const record = { id: "project", project: "project", kind: "coordinator", title: "Project", folder: "/project", space: "s1", tab: "tab1", terminal: "t1", state: "running", status: "idle", waiting: 0, resolved: false, rank: 1 };
 const child = { ...record, id: "thread", project: "project", kind: "thread", title: "New thread", terminal: "t2", tab: "tab2" };
 const pane = { pane: "buildbox/p2", terminal: "buildbox/t2", tab: "buildbox/tab2" };
-function harness(respond, visible = [pane]) {
+function harness(respond, visible = [pane], panes = 1) {
   const calls = [], commands = [];
   return { calls, commands, io: {
     authorize: () => {},
@@ -16,7 +16,7 @@ function harness(respond, visible = [pane]) {
       return { code: 0, stdout: JSON.stringify(await respond(action, input)), stderr: "" };
     },
     panes: () => visible,
-    tabs: () => [{ id: pane.tab, named: true, name: "The user's tab name" }],
+    tabs: () => [{ id: pane.tab, named: true, name: "The user's tab name", panes }],
     run: (name, args) => commands.push([name, args]),
     pause: async () => {},
   } };
@@ -60,6 +60,14 @@ test("rename updates only a verified current terminal's tab", async () => {
   const stopped = harness(() => ({ ...child, title: "Saved", state: "stopped" }));
   await performSessionAction(endpoint, "rename", child, { title: "Saved" }, stopped.io);
   assert.deepEqual(stopped.commands, []);
+});
+
+test("a session's title never names a tab of more than one pane", async () => {
+  for (const [action, session, extra] of [["rename", child, { title: "New name" }], ["create-thread", record, {}]]) {
+    const { io, commands } = harness(() => ({ ...child, ...extra }), [pane], 2);
+    await performSessionAction(endpoint, action, session, extra, io);
+    assert.deepEqual(commands.filter(([name]) => name === "tab.rename"), [], action);
+  }
 });
 
 test("a rename goes through control as the user's; failure leaves the user's tab untouched", async () => {

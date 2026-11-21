@@ -3,7 +3,7 @@ import { Button, h_flex, v_flex } from "gpui-base";
 import { agents, exec, hc, machines, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, theme, updates } from "herdr";
 import StockSpaces, { STOCK_VERSION } from "./stock-spaces.js";
 import { SessionBackends, authorizeEndpoint, errorText, qualify, savedSessions, unqualify } from "./backends.js";
-import { displayRows, dropRank, foldTarget, moveRank, openSpace, projectKey, projectSpaces, reopening, resolvedToggle, selectedKey, sessionDetail, sessionKey, settled, spaceDrop, spaceItems, spaceKey, spaceRecords, spaceRows, spaceSessions, stepRow, tabRenames, urgentStatus } from "./projection.js";
+import { displayRows, dropRank, foldTarget, holdsSessions, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, settled, spaceDrop, spaceHeads, spaceItems, spaceKey, spaceRecords, spaceRows, spaceSessions, stepRow, tabRenames, urgentStatus } from "./projection.js";
 import { act } from "./actions.js";
 
 export const MOD = "herdr-project-spaces";
@@ -53,7 +53,7 @@ function readSet(key) {
 function readRecords(key) {
   try {
     const value = JSON.parse(localStorage.getItem(key) || "{}");
-    if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some(record => typeof record?.name !== "string" || !Array.isArray(record.running))) throw new Error(`Invalid saved ${key}.`);
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some(record => typeof record?.name !== "string")) throw new Error(`Invalid saved ${key}.`);
     return value;
   } catch (error) { reportError(error); return {}; }
 }
@@ -278,7 +278,7 @@ export default class ProjectTree extends StockSpaces {
     this.pressed = this.over = null;
     if (pressed !== row.key) return;
     if (this.projectFolds.has(key)) this.toggle(this.projectFolds, key, "projects.folded", cx);
-    for (const session of reopening(row, this.remembered[row.key])) this.open(session, cx);
+    for (const head of spaceHeads(row)) this.open(head, cx);
   }
 
   hoverRow(key, on, cx) {
@@ -339,7 +339,7 @@ export default class ProjectTree extends StockSpaces {
   }
 
   unavailableRows(rows, t) {
-    return rows.filter(({ w }) => this.projection.get(w.id)?.groups.length || this.projection.get(w.id)?.archived).map(row => this.row({ ...row, snapshot: true }, t));
+    return rows.filter(({ w }) => this.projection.has(w.id) && holdsSessions(this.projection.get(w.id))).map(row => this.row({ ...row, snapshot: true }, t));
   }
 
   row(native, t) {
@@ -351,7 +351,7 @@ export default class ProjectTree extends StockSpaces {
       .children(this.rowLeading(native.w))
       .child(native.w.closed ? h_flex().size(18).flex_none().rounded(5).bg(t.dim).items_center().justify_center().text_size(10.5).font_bold().text_color("#ffffff").child([...native.w.name][0]?.toUpperCase() ?? "?") : icon("folder"))
       .when(!!native.w.closed, el => el.on_mouse_down("left", () => { this.pressed = this.over = native.w.id; }).on_mouse_up("left", (_e, cx) => this.reopen(row, cx)).on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: MOD, kind: "popup", width: 200, props: { role: "space-menu", sessions: spaceSessions(row) } }); }))
-      .child(div().flex_1().truncate().tooltip(native.w.closed ? "Closed; opening one of its sessions brings it back." : "Out of reach; its projects open again once its machine reconnects.").child(native.w.name))
+      .child(div().flex_1().truncate().tooltip(native.w.closed ? "Closed; opening one of its sessions brings it back." : "Out of reach; its sessions open again once its machine reconnects.").child(native.w.name))
       .children(this.rowTrailing(native.w, t, true))
       // Stock fills the row of the `active` space; here the selected row has the fill, which a session's may be.
       : super.row({ ...native, w: { ...native.w, active: selected } }, t).on_hover((on, cx) => this.hoverRow(key, on, cx));
@@ -372,7 +372,7 @@ export default class ProjectTree extends StockSpaces {
       ...this.archive(group.key, group.archived, "resolved threads", hovered),
       ...(hovered ? [smallButton(`thread-${row.key}`, "plus", `New thread in ${session.title}`, cx => this.newThread(row, cx))] : []),
     ] : [];
-    const indent = { coordinator: 26, thread: 73, plain: 53 }[session.kind];
+    const indent = { coordinator: 26, thread: 69, plain: 53 }[session.kind];
     return this.draggable(h_flex().id(`session-${row.key}`).h(28).flex_none().pl(indent).pr(8).gap(7).items_center().rounded(7)
       .text_size(12.8).text_color(session.resolved || !row.live && session.state !== "starting" ? t.dim : t.foreground)
       .when(selected, el => el.bg(t.selected)).when(!selected, el => el.hover(s => s.bg(t.hover)))

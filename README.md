@@ -11,7 +11,7 @@ It is a copy of herdr's own Spaces panel. What it changes there:
 - the filled row is the focused terminal's row, not the active space;
 - dropping a stopped project or session on a space moves it there;
 - a session with messages waiting shows their number;
-- a space herdr closed stays listed, grey, while it holds unresolved sessions, and opens again with the ones that ran in it;
+- a space herdr closed stays listed, grey, while it holds unresolved sessions, and a click on it opens them;
 - a space that cannot be read keeps its projects under a dim row (a folder cell in the narrow rail).
 
 ## Install
@@ -35,9 +35,9 @@ node herdr-project-spaces/install.mjs
 
 | | |
 | --- | --- |
-| Click a row | open it; a closed space opens with the sessions that ran in it |
+| Click a row | open it; a closed space opens the unresolved projects and sessions under it |
 | `+` on a project | new thread |
-| Right-click | rename, move folder, close, resolve, delete; on a closed space, remove it |
+| Right-click | rename, move folder, close, resolve, delete; on a closed space, resolve what is under it |
 | Archive icon (on hover) | show or hide resolved ones |
 | Drag | reorder; drag a stopped project or session onto another space to move it |
 

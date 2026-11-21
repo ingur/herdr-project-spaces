@@ -70,7 +70,7 @@ export class SessionMenu extends Menu {
 }
 
 export class SpaceMenu extends Menu {
-  list() { return [{ title: "Remove space", action: "resolve", icon: "check" }]; }
+  list() { return [{ title: "Resolve space", action: "resolve", icon: "check" }]; }
 
   async run(item, cx) {
     for (const session of this.options.sessions) await act(item.action, currentSession(session, backendStorage), {}, actionIO(cx, this));

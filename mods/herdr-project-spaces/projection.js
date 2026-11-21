@@ -141,15 +141,15 @@ export const urgentStatus = rows => URGENT.find(status => rows.some(row => row?.
 export const spaceItems = row => [...row.groups, ...row.entries].sort(byRank);
 
 export function spaceRecords(rows, records) {
-  const running = rows.flatMap(spaceRows).filter(row => row?.session && row.live);
-  const record = row => row.space.closed ? records[row.key] && { ...records[row.key], closed: true }
-    : { name: row.space.name, running: running.filter(session => session.placement.id === row.key).map(session => session.key) };
+  const record = row => row.space.closed ? records[row.key] && { name: records[row.key].name, closed: true } : { name: row.space.name };
   return Object.fromEntries(rows.filter(row => !row.space.machine).map(row => [row.key, record(row)]).filter(([, kept]) => kept));
 }
 
-export const reopening = (row, record) => spaceRows(row).filter(item => item?.session && record?.running.includes(item.key));
+export const spaceHeads = row => spaceItems(row).map(item => item.children ? item.coordinator : item).filter(item => item?.session);
 
-export const spaceSessions = row => spaceItems(row).map(item => (item.coordinator ?? item).session).filter(Boolean);
+export const spaceSessions = row => spaceHeads(row).map(item => item.session);
+
+export const holdsSessions = row => row.groups.length > 0 || row.archived > 0 || row.entries.some(entry => entry.session);
 
 // What a folded space hides, in display order; null is an unavailable project's head.
 export const spaceRows = row => spaceItems(row).flatMap(item => item.children ? [item.coordinator, ...item.children] : [item]);
@@ -293,6 +293,8 @@ export const sessionDetail = (row, space) => [row.session.folder, row.session.re
 // Until every backend answers and sees hc, a session may only look gone: name nothing, forget nothing.
 export const settled = sessions => sessions.every(session => session.available === true && !session.error);
 
+export const soleTab = (pane, tabs) => tabs.find(tab => tab.id === pane?.tab && tab.panes === 1);
+
 export function tabRenames(sessions, panes, tabs, applied) {
   if (!settled(sessions)) return [];
   const renames = [], held = new Set();
@@ -302,7 +304,7 @@ export function tabRenames(sessions, panes, tabs, applied) {
     const tab = pane && tabs.find(tab => tab.id === pane.tab);
     if (!tab) continue;
     held.add(tab.id);
-    if (tab.panes !== 1) continue;
+    if (!soleTab(pane, tabs)) continue;
     const key = sessionKey(session), previous = applied.get(key);
     const synced = previous?.tab === tab.id ? previous : null;
     if (synced && session.title === synced.title && tab.named && tab.name !== synced.name) {

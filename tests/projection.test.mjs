@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, reopening, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceItems, spaceRecords, spaceRows, spaceSessions, stepRow } from "../mods/herdr-project-spaces/projection.js";
+import { tabRenames, displayRows, dropRank, moveRank, openSpace, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, spaceDrop, spaceHeads, spaceItems, spaceRecords, spaceRows, spaceSessions, stepRow } from "../mods/herdr-project-spaces/projection.js";
 import { qualify } from "../mods/herdr-project-spaces/backends.js";
 
 const endpoint = (machine = null, stateDir = "/state") => ({ version: 3, command: ["/bin/node", "/control.mjs"], stateDir, machine });
@@ -408,24 +408,23 @@ test("a session that has no title yet does not name its tab", () => {
   assert.deepEqual(tabRenames([{ ...untitled, title: "Parser", titleSource: "agent" }], panes, tabs, new Map()), [{ id: "a", name: "Parser" }]);
 });
 
-test("a space of this computer is remembered as last seen open: its name and what ran in it; a closed one opens with what is still under it", () => {
+test("a space of this computer is remembered by its name; a closed one opens the projects and sessions listed under it", () => {
   const mine = [space("one", ["tab-one"], { name: "Mine" }), space("two", ["tab-two"]), space("remote/one", [], { machine: "remote" })];
   const running = [session("run", "run", { terminal: "t1", ...live }), session("child", "run", { terminal: "t2", ...live }), plain("idle")];
   const panes = [{ pane: "p1", tab: "tab-one", terminal: "t1" }, { pane: "p2", tab: "tab-one", terminal: "t2" }];
-  const seen = spaceRecords(projectSpaces({ spaces: mine, panes, agents: [], sessions: running }), { gone: { name: "Gone", running: [] } });
-  assert.deepEqual(seen, { one: { name: "Mine", running: [key("run"), key("child")] }, two: { name: "two", running: [] } });
+  const seen = spaceRecords(projectSpaces({ spaces: mine, panes, agents: [], sessions: running }), { gone: { name: "Gone" } });
+  assert.deepEqual(seen, { one: { name: "Mine" }, two: { name: "two" } });
 
-  const stopped = [session("run"), session("child", "run"), plain("idle")];
+  const stopped = [session("run"), session("child", "run"), plain("idle"), plain("done", { resolved: true })];
   const closed = sessions => projectSpaces({ spaces: mine.slice(1), panes: [], agents: [], sessions, records: seen });
   const row = sessions => closed(sessions).find(row => row.key === "one");
   assert.deepEqual([row(stopped).space.name, row(stopped).space.closed], ["Mine", true]);
   const kept = spaceRecords(closed(stopped), seen);
-  assert.deepEqual(kept.one, { ...seen.one, closed: true });
-  assert.deepEqual(reopening(row(stopped), kept.one).map(item => item.session.id), ["run", "child"]);
+  assert.deepEqual(kept.one, { name: "Mine", closed: true });
+  assert.deepEqual(spaceHeads(row(stopped)).map(item => item.session.id), ["run", "idle"], "a project brings its own threads; what is resolved is not listed");
 
   const moved = [session("run", "run", { space: "two" }), session("child", "run"), plain("idle")];
-  assert.deepEqual(reopening(row(moved), kept.one), [], "a project moved to another space takes its threads; what never ran stays closed");
-  assert.deepEqual(reopening(row(stopped), undefined), []);
+  assert.deepEqual(spaceHeads(row(moved)).map(item => item.session.id), ["idle"], "a project moved to another space takes its threads");
   const resolved = stopped.map(session => ({ ...session, resolved: true }));
   assert.deepEqual(Object.keys(spaceRecords(closed(resolved), kept)), ["two"], "with no row left, the record goes");
 });
