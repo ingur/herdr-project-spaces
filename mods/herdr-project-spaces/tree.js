@@ -1,7 +1,7 @@
 import { div, svg, image } from "gpui-kit";
 import { Button, h_flex, v_flex } from "gpui-base";
-import { agents, exec, hc, machines, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, theme, updates } from "herdr";
-import StockSpaces, { STOCK_VERSION } from "./stock-spaces.js";
+import { agents, exec, hc, machines, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, theme } from "herdr";
+import StockSpaces from "./stock-spaces.js";
 import { SessionBackends, authorizeEndpoint, errorText, qualify, savedSessions, unqualify } from "./backends.js";
 import { displayRows, dropRank, foldTarget, holdsSessions, moveRank, openSpace, projectKey, projectSpaces, resolvedToggle, selectedKey, sessionDetail, sessionKey, settled, spaceDrop, spaceHeads, spaceItems, spaceKey, spaceRecords, spaceRows, spaceSessions, stepRow, tabRenames, urgentStatus } from "./projection.js";
 import { act } from "./actions.js";
@@ -97,13 +97,6 @@ export default class ProjectTree extends StockSpaces {
     this.changing = new Map();
     // The key outlives the copy that wrote it (Herdr saves shared state): act only on what changes from here on.
     this.sessionChange = JSON.stringify(shared(CHANGED));
-    // The Spaces this extends is one Herdr release's copy: say so once for each other release it runs in.
-    // Read leniently: this is the one line meant for a Herdr it was not written against.
-    const app = updates()?.app?.version;
-    if (app && app !== STOCK_VERSION && localStorage.getItem("projects.stock-notice") !== app) {
-      localStorage.setItem("projects.stock-notice", app);
-      notify({ title: "Project sessions", body: `This sidebar is built on the Spaces panel of Herdr ${STOCK_VERSION}; this is Herdr ${app}. It may misdraw or miss what is new there until herdr-project-spaces is updated.`, level: "warning" });
-    }
     // No endpoint is configured: sessions' terminals advertise theirs. Until one has, this is stock Spaces.
     this.backends = new SessionBackends({ storage: backendStorage, exec, hc, terminals });
     if (this.backends.errors.length) reportError(this.backends.errors.join("\n"));

@@ -1,6 +1,6 @@
 herdr-project-spaces
 
-vendor/spaces-*.js is a copy of the Spaces panel (mods/spaces/main.js) of Herdr,
+vendor/spaces.js is a copy of the Spaces panel (mods/spaces/main.js) of Herdr,
 https://github.com/herdrdev/herdr-app. mods/herdr-project-spaces/stock-spaces.js is a
 modified copy of it. Copyright the Herdr authors. Both are licensed under the Apache License, Version 2.0; its text is
 in LICENSE-APACHE.

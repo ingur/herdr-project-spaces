@@ -1,7 +1,5 @@
-// A modified copy of Herdr 0.1.16's generated mods/spaces/main.js, Apache-2.0 (see NOTICE and LICENSE-APACHE in this mod's repository); the unchanged file is vendor/spaces-0.1.16.js there.
-// Original SHA-256: 8f7111eb3a7c055bb04bd81b88f90b581e4d4a85f512eb87d3f5d15f1073f8bd
-// Local changes: this version constant, a stable id on the list, and optional row-leading/trailing, row-drop (a row that is no space, dropped on one) and rebuilt-machine snapshot hooks only.
-export const STOCK_VERSION = "0.1.16";
+// A modified copy of mods/spaces/main.js from Herdr 0.1.16, Apache-2.0 (see NOTICE and LICENSE-APACHE in this mod's repository); the unchanged file is vendor/spaces.js there.
+// Local changes: a stable id on the list, and optional row-leading/trailing, row-drop (a row that is no space, dropped on one) and rebuilt-machine snapshot hooks only.
 // Workspace spaces: stable colored avatars, worktrees under their checkout,
 // grouped by machine when more than one is known. After a space's name, the repo
 // its first terminal is in now, only where unusual: branch, ahead/behind. Agent state lives in the agents list, not here. Click to
