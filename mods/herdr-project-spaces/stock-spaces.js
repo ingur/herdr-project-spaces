@@ -1,4 +1,4 @@
-// A modified copy of mods/spaces/main.js from Herdr 0.1.16, Apache-2.0 (see NOTICE and LICENSE-APACHE in this mod's repository); the unchanged file is vendor/spaces.js there.
+// A modified copy of mods/spaces/main.js from Herdr 0.1.17, Apache-2.0 (see NOTICE and LICENSE-APACHE in this mod's repository); the unchanged file is vendor/spaces.js there.
 // Local changes: a stable id on the list, and optional row-leading/trailing, row-drop (a row that is no space, dropped on one) and rebuilt-machine snapshot hooks only.
 // Workspace spaces: stable colored avatars, worktrees under their checkout,
 // grouped by machine when more than one is known. After a space's name, the repo
@@ -35,6 +35,13 @@ const SIDE_MIN = 48;
 const railCell = (el) => h_flex().flex_none().justify_center().child(el);
 const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);
 const base = (path) => path.replace(/\/+$/, "").split("/").pop();
+// A repo's name from its git folder: the folder holding .git, a bare repo's own
+// name, or the folder holding a hidden bare repo (<project>/.bare).
+const repoName = (common) => {
+  if (common.endsWith("/.git")) return base(common.slice(0, -5));
+  const own = base(common);
+  return own === ".bare" ? base(common.slice(0, -own.length - 1)) : own.replace(/\.git$/, "");
+};
 // Changes made outside Herdr (an editor's save, a commit in another app): looked
 // for this often, in repos the list shows, while the window is in front.
 const FALLBACK = 60000;
@@ -253,7 +260,7 @@ export default class Spaces extends View {
         exec("git", ["symbolic-ref", "-q", "HEAD"], { cwd, on }),
         exec("git", ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"], { cwd, on }),
       );
-      const name = repo.endsWith("/.git") ? base(repo.slice(0, -5)) : base(repo).replace(/\.git$/, "");
+      const name = repoName(repo);
       const [ahead, behind] = counts.code === 0 ? counts.stdout.trim().split(/\s+/).map(Number) : [0, 0];
       const info = { name, branch: branch.code === 0 ? branch.stdout.trim().replace(/^refs\/heads\//, "") : "(detached)", ahead, behind, repo: JSON.stringify([on, repo]), linked: repo !== `${top}/.git` };
       this.git[key] = info;
